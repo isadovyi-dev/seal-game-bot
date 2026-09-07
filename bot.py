@@ -12,8 +12,8 @@ TOKEN = "8072842801:AAHgOyzmksuZrYOGnoSSYmsgVEOKUxklMcA"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# --- БАЗА ДАНИХ ГРАВЦІВ ---
 PLAYERS_DB = {}
+PROCESSING_USERS = set()
 
 def get_player_data(user_id: int):
     today_str = datetime.now().strftime("%Y-%m-%d")
@@ -34,7 +34,6 @@ def get_player_data(user_id: int):
         
     return player
 
-# --- 100 УНІКАЛЬНИХ НАЗВ ---
 CARD_NAMES = [
     "🦭 Сонний Тюленчик", "🦭 Малий Вусань", "🦭 Пухлик", "🦭 Морська Коржика", "🦭 Рибоед",
     "🦭 Товстун", "🦭 Любитель Сну", "🦭 Пляжний Лежень", "🦭 Плямистий Тюлень", "🦭 Маленький Пловець",
@@ -58,16 +57,12 @@ CARD_NAMES = [
     "🦭 Божественний Тюлень Океану", "🦭 Древній Хранитель Глибин", "🦭 Легендарний Повелитель Штормів", "🦭 Полярний Властелик Світу", "🦭 Нефритовий Божественний Вусань"
 ]
 
-# --- БАЗА ЗОБРАЖЕНЬ ТЮЛЕНІВ С З ВІКІМЕДІЇ ---
-BASE_SEAL_URLS = [
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Common_seal_2007-08-12.jpg/800px-Common_seal_2007-08-12.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Harbor_seal_at_Kachemak_Bay.jpg/800px-Harbor_seal_at_Kachemak_Bay.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Harbor_Seal_%28Phoca_vitulina%29_-_San_Diego%2C_CA.jpg/800px-Harbor_Seal_%28Phoca_vitulina%29_-_San_Diego%2C_CA.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Phoca_vitulina_1.jpg/800px-Phoca_vitulina_1.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Harbor_seal_resting.jpg/800px-Harbor_seal_resting.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Phoca_vitulina_in_Gouville-sur-Mer.jpg/800px-Phoca_vitulina_in_Gouville-sur-Mer.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Harbor_Seal_Phoca_vitulina.jpg/800px-Harbor_Seal_Phoca_vitulina.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Common_seal_Phoca_vitulina.jpg/800px-Common_seal_Phoca_vitulina.jpg"
+# Прямі швидкі посилання на зображення
+SEAL_IMAGES = [
+    "https://images.unsplash.com/photo-1598439210625-5067c578f3f6?w=800",
+    "https://images.unsplash.com/photo-1551085254-e96b210db58a?w=800",
+    "https://images.unsplash.com/photo-1575550959106-5a7defe28b56?w=800",
+    "https://images.unsplash.com/photo-1534567153574-2b12153a87f0?w=800"
 ]
 
 CARDS_DATABASE = {}
@@ -86,10 +81,9 @@ for idx in range(1, 101):
         "name": f"{CARD_NAMES[idx - 1]} #{idx}",
         "rarity": rarity,
         "weight": weight,
-        "image": BASE_SEAL_URLS[(idx - 1) % len(BASE_SEAL_URLS)]
+        "image": SEAL_IMAGES[(idx - 1) % len(SEAL_IMAGES)]
     }
 
-# --- КЛАВІАТУРИ ---
 def get_main_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="🎣 Ловити рибу (2/день)", callback_data="fish")
@@ -107,15 +101,14 @@ def get_back_keyboard():
     builder.adjust(2)
     return builder.as_markup()
 
-# --- ОБРОБНИКИ КОМАНД ТА КНОПОК ---
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     get_player_data(message.from_user.id)
     await message.answer(
         "🦭 **Вітаю у Seal Game!**\n\n"
         "1. Лови рибу (максимум **2 рази на день**).\n"
-        "2. Витрачай TL на купівлю **100 унікальних карток тюленів** (1 картка = 10 TL).\n"
-        "3. Збирай колекцію та переглядай картки!",
+        "2. Витрачай TL на купівлю **100 унікальних карток** (1 картка = 10 TL).\n"
+        "3. Збирай колекцію!",
         reply_markup=get_main_keyboard(),
         parse_mode="Markdown"
     )
@@ -127,34 +120,43 @@ async def process_main_menu(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "fish")
 async def process_fish(callback: types.CallbackQuery):
-    player = get_player_data(callback.from_user.id)
-    
-    if player["fish_attempts"] >= 2:
-        await callback.message.answer(
-            "⏳ **Ліміт риболовлі вичерпано!**\n\n"
-            "Ти вже зловив рибу 2 рази сьогодні (2/2). Приходь завтра!",
-            reply_markup=get_main_keyboard(),
-            parse_mode="Markdown"
-        )
+    user_id = callback.from_user.id
+    if user_id in PROCESSING_USERS:
         await callback.answer()
         return
+    PROCESSING_USERS.add(user_id)
 
-    player["fish_attempts"] += 1
-    earned_tl = random.randint(5, 12)
-    player["balance"] += earned_tl
-    
-    fish_types = ["🐟 Маленьку рибку", "🐠 Тропічну рибку", "🐟 Велику тріску", "🦀 Краба", "🦐 Креветку"]
-    caught = random.choice(fish_types)
-    
-    text = (
-        f"🎣 **Вдала риболовля!** ({player['fish_attempts']}/2 сьогодні)\n\n"
-        f"Ти спіймав: **{caught}**\n"
-        f"Зароблено: **+{earned_tl} TL** 💰\n"
-        f"Твій новий баланс: **{player['balance']} TL**"
-    )
-    
-    await callback.message.answer(text, reply_markup=get_back_keyboard(), parse_mode="Markdown")
-    await callback.answer()
+    try:
+        player = get_player_data(user_id)
+        
+        if player["fish_attempts"] >= 2:
+            await callback.message.answer(
+                "⏳ **Ліміт риболовлі вичерпано!**\n\n"
+                "Ти вже зловив рибу 2 рази сьогодні (2/2). Приходь завтра!",
+                reply_markup=get_main_keyboard(),
+                parse_mode="Markdown"
+            )
+            await callback.answer()
+            return
+
+        player["fish_attempts"] += 1
+        earned_tl = random.randint(5, 12)
+        player["balance"] += earned_tl
+        
+        fish_types = ["🐟 Маленьку рибку", "🐠 Тропічну рибку", "🐟 Велику тріску", "🦀 Краба", "🦐 Креветку"]
+        caught = random.choice(fish_types)
+        
+        text = (
+            f"🎣 **Вдала риболовля!** ({player['fish_attempts']}/2 сьогодні)\n\n"
+            f"Ти спіймав: **{caught}**\n"
+            f"Зароблено: **+{earned_tl} TL** 💰\n"
+            f"Твій новий баланс: **{player['balance']} TL**"
+        )
+        
+        await callback.message.answer(text, reply_markup=get_back_keyboard(), parse_mode="Markdown")
+        await callback.answer()
+    finally:
+        PROCESSING_USERS.remove(user_id)
 
 @dp.callback_query(lambda c: c.data == "profile")
 async def process_profile(callback: types.CallbackQuery):
@@ -170,54 +172,64 @@ async def process_profile(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "buy_card")
 async def process_buy_card(callback: types.CallbackQuery):
-    player = get_player_data(callback.from_user.id)
+    user_id = callback.from_user.id
     
-    # ПЕРЕВІРКА БАЛАНСУ ДО СПИСАННЯ КОШТІВ
-    if player["balance"] < 10:
-        await callback.message.answer(
-            f"❌ **Нестача коштів!**\n\n"
-            f"Картка коштує **10 TL**, а у тебе зараз **{player['balance']} TL**.\n"
-            f"Зароби гроші на риболовлі!",
-            reply_markup=get_main_keyboard(),
-            parse_mode="Markdown"
-        )
+    if user_id in PROCESSING_USERS:
         await callback.answer()
         return
+    PROCESSING_USERS.add(user_id)
 
-    # СПИСАННЯ ТІЛЬКИ ПІСЛЯ УСПІШНОЇ ПЕРЕВІРКИ
-    player["balance"] -= 10
-    
-    cards_list = list(CARDS_DATABASE.values())
-    weights = [c["weight"] for c in cards_list]
-    chosen_card = random.choices(cards_list, weights=weights, k=1)[0]
-    
-    is_new = chosen_card["id"] not in player["collection"]
-    player["collection"].add(chosen_card["id"])
-    
-    status_text = "✨ **НОВА УНІКАЛЬНА КАРТКА!**" if is_new else "🔄 Така картка вже є в колекції."
-    
-    bonus_text = ""
-    if len(player["collection"]) == 100 and is_new:
-        player["balance"] += 1000
-        bonus_text = "\n\n🎉 **ВІТАЄМО! Ти зібрав усі 100 карток і отримав бонус +1000 TL!** 🏆"
+    try:
+        player = get_player_data(user_id)
+        
+        # ТОЧНА ПЕРЕВІРКА: якщо коштів дійсно менше 10 TL
+        if player["balance"] < 10:
+            await callback.message.answer(
+                f"❌ **Нестача коштів!**\n\n"
+                f"Картка коштує **10 TL**, а у тебе зараз **{player['balance']} TL**.\n"
+                f"Зароби гроші на риболовлі!",
+                reply_markup=get_main_keyboard(),
+                parse_mode="Markdown"
+            )
+            await callback.answer()
+            return
 
-    caption = (
-        f"{status_text}\n\n"
-        f"🃏 **Картка:** {chosen_card['name']}\n"
-        f"✨ **Рідкісність:** {chosen_card['rarity']}\n"
-        f"💰 **Залишок балансу:** {player['balance']} TL\n"
-        f"📦 **Колекція:** {len(player['collection'])}/100"
-        f"{bonus_text}"
-    )
-    
-    await callback.message.answer_photo(
-        photo=chosen_card["image"],
-        caption=caption,
-        reply_markup=get_back_keyboard(),
-        parse_mode="Markdown"
-    )
+        # Списання грошей
+        player["balance"] -= 10
+        
+        cards_list = list(CARDS_DATABASE.values())
+        weights = [c["weight"] for c in cards_list]
+        chosen_card = random.choices(cards_list, weights=weights, k=1)[0]
+        
+        is_new = chosen_card["id"] not in player["collection"]
+        player["collection"].add(chosen_card["id"])
+        
+        status_text = "✨ **НОВА УНІКАЛЬНА КАРТКА!**" if is_new else "🔄 Така картка вже є в колекції."
+        
+        bonus_text = ""
+        if len(player["collection"]) == 100 and is_new:
+            player["balance"] += 1000
+            bonus_text = "\n\n🎉 **ВІТАЄМО! Ти зібрав усі 100 карток і отримав бонус +1000 TL!** 🏆"
 
-    await callback.answer()
+        caption = (
+            f"{status_text}\n\n"
+            f"🃏 **Картка:** {chosen_card['name']}\n"
+            f"✨ **Рідкісність:** {chosen_card['rarity']}\n"
+            f"💰 **Залишок балансу:** {player['balance']} TL\n"
+            f"📦 **Колекція:** {len(player['collection'])}/100"
+            f"{bonus_text}"
+        )
+        
+        await callback.message.answer_photo(
+            photo=chosen_card["image"],
+            caption=caption,
+            reply_markup=get_back_keyboard(),
+            parse_mode="Markdown"
+        )
+
+        await callback.answer()
+    finally:
+        PROCESSING_USERS.remove(user_id)
 
 @dp.callback_query(lambda c: c.data == "my_collection")
 async def process_collection(callback: types.CallbackQuery):
@@ -270,7 +282,6 @@ async def process_view_card(callback: types.CallbackQuery):
         )
     await callback.answer()
 
-# --- ВЕБ-СЕРВЕР ---
 async def handle_ping(request):
     return web.Response(text="Bot is alive!")
 

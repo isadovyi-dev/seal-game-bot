@@ -1,4 +1,5 @@
 import os
+import json
 import random
 import asyncio
 from datetime import datetime
@@ -12,8 +13,32 @@ TOKEN = "8072842801:AAHgOyzmksuZrYOGnoSSYmsgVEOKUxklMcA"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-PLAYERS_DB = {}
+DB_FILE = "players_data.json"
 PROCESSING_USERS = set()
+
+# --- ЗБЕРЕЖЕННЯ ТА ЗАВАНТАЖЕННЯ БАЗИ ДАНИХ ---
+def load_db():
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                for user_id, p in data.items():
+                    p["collection"] = set(p["collection"])
+                return {int(k): v for k, v in data.items()}
+        except Exception:
+            return {}
+    return {}
+
+def save_db():
+    data_to_save = {}
+    for user_id, p in PLAYERS_DB.items():
+        p_copy = p.copy()
+        p_copy["collection"] = list(p["collection"])
+        data_to_save[str(user_id)] = p_copy
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(data_to_save, f, ensure_ascii=False, indent=2)
+
+PLAYERS_DB = load_db()
 
 def get_player_data(user_id: int):
     today_str = datetime.now().strftime("%Y-%m-%d")
@@ -25,12 +50,14 @@ def get_player_data(user_id: int):
             "fish_attempts": 0,
             "last_fish_date": today_str
         }
+        save_db()
     
     player = PLAYERS_DB[user_id]
     
     if player["last_fish_date"] != today_str:
         player["fish_attempts"] = 0
         player["last_fish_date"] = today_str
+        save_db()
         
     return player
 
@@ -57,12 +84,10 @@ CARD_NAMES = [
     "🦭 Божественний Тюлень Океану", "🦭 Древній Хранитель Глибин", "🦭 Легендарний Повелитель Штормів", "🦭 Полярний Властелик Світу", "🦭 Нефритовий Божественний Вусань"
 ]
 
-# Прямі швидкі посилання на зображення
 SEAL_IMAGES = [
-    "https://images.unsplash.com/photo-1598439210625-5067c578f3f6?w=800",
-    "https://images.unsplash.com/photo-1551085254-e96b210db58a?w=800",
-    "https://images.unsplash.com/photo-1575550959106-5a7defe28b56?w=800",
-    "https://images.unsplash.com/photo-1534567153574-2b12153a87f0?w=800"
+    "https://images.unsplash.com/photo-1598439210625-5067c578f3f6?w=600",
+    "https://images.unsplash.com/photo-1551085254-e96b210db58a?w=600",
+    "https://images.unsplash.com/photo-1575550959106-5a7defe28b56?w=600"
 ]
 
 CARDS_DATABASE = {}
@@ -122,7 +147,7 @@ async def process_main_menu(callback: types.CallbackQuery):
 async def process_fish(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     if user_id in PROCESSING_USERS:
-        await callback.answer()
+        await callback.answer("⏳ Зачекай...", show_alert=False)
         return
     PROCESSING_USERS.add(user_id)
 
@@ -142,6 +167,7 @@ async def process_fish(callback: types.CallbackQuery):
         player["fish_attempts"] += 1
         earned_tl = random.randint(5, 12)
         player["balance"] += earned_tl
+        save_db()
         
         fish_types = ["🐟 Маленьку рибку", "🐠 Тропічну рибку", "🐟 Велику тріску", "🦀 Краба", "🦐 Креветку"]
         caught = random.choice(fish_types)
@@ -175,14 +201,13 @@ async def process_buy_card(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     
     if user_id in PROCESSING_USERS:
-        await callback.answer()
+        await callback.answer("⏳ Обробка...", show_alert=False)
         return
     PROCESSING_USERS.add(user_id)
 
     try:
         player = get_player_data(user_id)
         
-        # ТОЧНА ПЕРЕВІРКА: якщо коштів дійсно менше 10 TL
         if player["balance"] < 10:
             await callback.message.answer(
                 f"❌ **Нестача коштів!**\n\n"
@@ -194,7 +219,6 @@ async def process_buy_card(callback: types.CallbackQuery):
             await callback.answer()
             return
 
-        # Списання грошей
         player["balance"] -= 10
         
         cards_list = list(CARDS_DATABASE.values())
@@ -204,13 +228,15 @@ async def process_buy_card(callback: types.CallbackQuery):
         is_new = chosen_card["id"] not in player["collection"]
         player["collection"].add(chosen_card["id"])
         
-        status_text = "✨ **НОВА УНІКАЛЬНА КАРТКА!**" if is_new else "🔄 Така картка вже є в колекції."
-        
         bonus_text = ""
         if len(player["collection"]) == 100 and is_new:
             player["balance"] += 1000
             bonus_text = "\n\n🎉 **ВІТАЄМО! Ти зібрав усі 100 карток і отримав бонус +1000 TL!** 🏆"
 
+        save_db()
+
+        status_text = "✨ **НОВА УНІКАЛЬНА КАРТКА!**" if is_new else "🔄 Така картка вже є в колекції."
+        
         caption = (
             f"{status_text}\n\n"
             f"🃏 **Картка:** {chosen_card['name']}\n"
@@ -220,12 +246,22 @@ async def process_buy_card(callback: types.CallbackQuery):
             f"{bonus_text}"
         )
         
-        await callback.message.answer_photo(
-            photo=chosen_card["image"],
-            caption=caption,
-            reply_markup=get_back_keyboard(),
-            parse_mode="Markdown"
-        )
+        try:
+            await asyncio.wait_for(
+                callback.message.answer_photo(
+                    photo=chosen_card["image"],
+                    caption=caption,
+                    reply_markup=get_back_keyboard(),
+                    parse_mode="Markdown"
+                ),
+                timeout=3.0
+            )
+        except Exception:
+            await callback.message.answer(
+                caption,
+                reply_markup=get_back_keyboard(),
+                parse_mode="Markdown"
+            )
 
         await callback.answer()
     finally:
@@ -274,12 +310,22 @@ async def process_view_card(callback: types.CallbackQuery):
         builder.button(text="🏠 Головне меню", callback_data="main_menu")
         builder.adjust(1)
 
-        await callback.message.answer_photo(
-            photo=card["image"],
-            caption=caption,
-            reply_markup=builder.as_markup(),
-            parse_mode="Markdown"
-        )
+        try:
+            await asyncio.wait_for(
+                callback.message.answer_photo(
+                    photo=card["image"],
+                    caption=caption,
+                    reply_markup=builder.as_markup(),
+                    parse_mode="Markdown"
+                ),
+                timeout=3.0
+            )
+        except Exception:
+            await callback.message.answer(
+                caption,
+                reply_markup=builder.as_markup(),
+                parse_mode="Markdown"
+            )
     await callback.answer()
 
 async def handle_ping(request):

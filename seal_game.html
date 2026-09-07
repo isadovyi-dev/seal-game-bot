@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Realistic Seal Game with Shop</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: #020617;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        #game-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        #game-container {
+            position: relative;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
+            border-radius: 16px;
+            overflow: hidden;
+            border: 2px solid rgba(255, 255, 255, 0.15);
+        }
+        canvas {
+            display: block;
+            background: linear-gradient(to bottom, #0284c7, #0369a1, #0f172a);
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 16px;
+            font-weight: 700;
+            pointer-events: none;
+            z-index: 5;
+        }
+        .ui-bar {
+            background: rgba(15, 23, 42, 0.7);
+            padding: 10px 18px;
+            border-radius: 20px;
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        #controls-hint {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(8px);
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 13px;
+            pointer-events: none;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        /* Авторизація */
+        #auth-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(2, 6, 23, 0.9);
+            backdrop-filter: blur(12px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+        .auth-box {
+            background: #0f172a;
+            padding: 32px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            text-align: center;
+            max-width: 380px;
+            width: 90%;
+        }
+        .auth-box h2 { margin-bottom: 10px; font-size: 22px; color: #38bdf8; }
+        .auth-box p { color: #94a3b8; font-size: 13px; margin-bottom: 20px; }
+        .auth-box input {
+            width: 100%;
+            padding: 12px;
+            border-radius: 10px;
+            border: 1px solid #334155;
+            background: #020617;
+            color: #fff;
+            font-size: 15px;
+            margin-bottom: 12px;
+            outline: none;
+        }
+        .auth-box input:focus { border-color: #38bdf8; }
+        .auth-btn {
+            width: 100%;
+            padding: 12px;
+            border-radius: 10px;
+            border: none;
+            background: #0284c7;
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 8px;
+        }
+        .auth-btn:hover { background: #0369a1; }
+        .auth-btn-guest { background: transparent; color: #94a3b8; border: 1px solid #334155; }
+        .auth-btn-guest:hover { background: #1e293b; color: #fff; }
+
+        /* Кнопка магазину */
+        #shop-toggle-btn {
+            position: absolute;
+            right: 15px;
+            top: 70px;
+            background: #f59e0b;
+            color: #0f172a;
+            border: none;
+            padding: 10px 16px;
+            font-weight: 800;
+            border-radius: 12px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+            transition: transform 0.2s, background 0.2s;
+            z-index: 10;
+        }
+        #shop-toggle-btn:hover {
+            background: #d97706;
+            transform: scale(1.05);
+        }
+
+        /* Панель магазину */
+        #shop-panel {
+            position: absolute;
+            top: 0;
+            right: -320px;
+            width: 300px;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.92);
+            backdrop-filter: blur(12px);
+            border-left: 2px solid rgba(255, 255, 255, 0.15);
+            box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+            transition: right 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 20;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        #shop-panel.open {
+            right: 0;
+        }
+        .shop-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 10px;
+        }
+        .shop-close-btn {
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-size: 20px;
+            cursor: pointer;
+        }
+        .shop-items {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            overflow-y: auto;
+        }
+        .shop-item {
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .shop-item-header {
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .shop-item-desc {
+            font-size: 11px;
+            color: #94a3b8;
+        }
+        .buy-btn {
+            margin-top: 4px;
+            background: #38bdf8;
+            color: #0f172a;
+            border: none;
+            padding: 6px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .buy-btn:hover { background: #0284c7; color: white; }
+        .buy-btn:disabled { background: #475569; color: #94a3b8; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+<div id="game-wrapper">
+    <div id="game-container">
+        <!-- Авторизація -->
+        <div id="auth-overlay">
+            <div class="auth-box">
+                <h2>Вхід у Seal Game 🦭</h2>
+                <p>Введи Telegram Username для синхронізації монет з ботом</p>
+                <input type="text" id="usernameInput" placeholder="Username (без @)">
+                <button class="auth-btn" onclick="loginUser()">Грати</button>
+                <button class="auth-btn auth-btn-guest" onclick="playAsGuest()">Як гість</button>
+            </div>
+        </div>
+
+        <div id="ui">
+            <div class="ui-bar" id="score">Тюлери: 0 TL</div>
+            <div class="ui-bar" id="air">Запас кисню: 100%</div>
+        </div>
+        <button id="shop-toggle-btn" onclick="toggleShop()">🛒 Магазин</button>
+        <div id="controls-hint">Керування: Стрілки / WASD | Піднімайся за киснем до поверхні</div>
+        
+        <div id="shop-panel">
+            <div class="shop-header">
+                <h2>Магазин Тюленя</h2>
+                <button class="shop-close-btn" onclick="toggleShop()">✕</button>
+            </div>
+            <div class="shop-items">
+                <div class="shop-item">
+                    <div class="shop-item-header">
+                        <span>⚡ Енергетична риба</span>
+                        <span style="color: #f59e0b;">10 TL</span>
+                    </div>
+                    <div class="shop-item-desc">Миттєво з'їдається і дає +50% до швидкості на 10 сек.</div>
+                    <button class="buy-btn" onclick="buyItem('energyFish', 10)">Купити</button>
+                </div>
+                <div class="shop-item">
+                    <div class="shop-item-header">
+                        <span>🪶 Шапочка Санти</span>
+                        <span style="color: #f59e0b;">25 TL</span>
+                    </div>
+                    <div class="shop-item-desc">Свято на голові тюленя.</div>
+                    <button class="buy-btn" id="btn-santaHat" onclick="buyItem('santaHat', 25)">Купити</button>
+                </div>
+                <div class="shop-item">
+                    <div class="shop-item-header">
+                        <span>🕶️ Круті окуляри</span>
+                        <span style="color: #f59e0b;">35 TL</span>
+                    </div>
+                    <div class="shop-item-desc">Стильні сонцезахисні окуляри.</div>
+                    <button class="buy-btn" id="btn-glasses" onclick="buyItem('glasses', 35)">Купити</button>
+                </div>
+                <div class="shop-item">
+                    <div class="shop-item-header">
+                        <span>🎀 Червоний метелик</span>
+                        <span style="color: #f59e0b;">20 TL</span>
+                    </div>
+                    <div class="shop-item-desc">Елегантний бантик на шию.</div>
+                    <button class="buy-btn" id="btn-bow" onclick="buyItem('bow', 20)">Купити</button>
+                </div>
+                <div class="shop-item">
+                    <div class="shop-item-header">
+                        <span>🤿 Акваланг (Кисень +)</span>
+                        <span style="color: #f59e0b;">50 TL</span>
+                    </div>
+                    <div class="shop-item-desc">Збільшує максимальний запас кисню на 50%.</div>
+                    <button class="buy-btn" id="btn-tank" onclick="buyItem('tank', 50)">Купити</button>
+                </div>
+            </div>
+        </div>
+
+        <canvas id="gameCanvas" width="900" height="550"></canvas>
+    </div>
+</div>
+
+<script>
+const SERVER_URL = "http://localhost:8080";
+let currentUser = null;
+let gameStarted = false;
+
+window.addEventListener('DOMContentLoaded', () => {
+    const savedUser = localStorage.getItem('seal_last_username');
+    if (savedUser) {
+        currentUser = savedUser;
+        initGame();
+    }
+});
+
+function loginUser() {
+    const userInput = document.getElementById('usernameInput')?.value.trim();
+    if (!userInput) return alert("Введіть ваш Telegram Username!");
+    
+    currentUser = userInput.replace('@', '');
+    localStorage.setItem('seal_last_username', currentUser);
+    initGame();
+}
+
+function playAsGuest() {
+    currentUser = "guest_" + Math.floor(Math.random() * 10000);
+    localStorage.setItem('seal_last_username', currentUser);
+    initGame();
+}
+
+function initGame() {
+    const overlay = document.getElementById('auth-overlay');
+    if (overlay) overlay.style.display = 'none';
+
+    const savedData = JSON.parse(localStorage.getItem(`seal_user_${currentUser}`)) || {
+        currency: 0,
+        accessories: { santaHat: false, glasses: false, bow: false, tank: false }
+    };
+
+    currency = savedData.currency;
+    seal.accessories = savedData.accessories;
+
+    for (const item in seal.accessories) {
+        if (seal.accessories[item]) {
+            const btn = document.getElementById(`btn-${item}`);
+            if (btn) {
+                btn.innerText = "Куплено";
+                btn.disabled = true;
+            }
+            if (item === 'tank') {
+                seal.maxAir = 150;
+                seal.air = 150;
+            }
+        }
+    }
+    gameStarted = true;
+}
+
+function saveUserData() {
+    if (!currentUser) return;
+    localStorage.setItem(`seal_user_${currentUser}`, JSON.stringify({
+        currency: currency,
+        accessories: seal.accessories
+    }));
+}
+
+function sendTLToBot(amount) {
+    if (!currentUser || currentUser.startsWith("guest_")) return;
+
+    fetch(`${SERVER_URL}/api/add-tl`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: currentUser, amount: amount })
+    }).catch(err => console.error("Помилка з'єднання з ботом:", err));
+}
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const keys = {};
+window.addEventListener('keydown', e => keys[e.code] = true);
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+let currency = 0; 
+let gameOver = false;
+let gameOverReason = "";
+
+const seal = {
+    x: 450,
+    y: 280,
+    radius: 32,
+    vx: 0,
+    vy: 0,
+    baseSpeed: 0.38,
+    speed: 0.38,
+    friction: 0.95,
+    angle: 0,
+    air: 100,
+    maxAir: 100,
+    animTime: 0,
+    boostTimer: 0,
+    eatAnimTimer: 0,
+    accessories: {
+        santaHat: false,
+        glasses: false,
+        bow: false,
+        tank: false
+    },
+    spots: Array.from({length: 22}, () => ({
+        x: (Math.random() - 0.5) * 44,
+        y: (Math.random() - 0.5) * 24,
+        r: Math.random() * 3 + 1,
+        opacity: Math.random() * 0.4 + 0.2
+    }))
+};
+
+const bubbles = Array.from({length: 30}, () => ({
+    x: Math.random() * canvas.width,
+    y: Math.random() * canvas.height,
+    r: Math.random() * 2.5 + 0.5,
+    speed: Math.random() * 0.8 + 0.3
+}));
+
+let fishes = [];
+let hazards = [];
+
+function toggleShop() {
+    document.getElementById('shop-panel').classList.toggle('open');
+}
+
+function buyItem(item, price) {
+    if (currency < price) return;
+
+    if (item === 'energyFish') {
+        currency -= price;
+        seal.boostTimer = 600;
+        seal.eatAnimTimer = 40;
+    } else {
+        if (seal.accessories[item]) return;
+        currency -= price;
+        seal.accessories[item] = true;
+        
+        if (item === 'tank') {
+            seal.maxAir = 150;
+            seal.air = 150;
+        }
+
+        const btn = document.getElementById(`btn-${item}`);
+        if (btn) {
+            btn.innerText = "Куплено";
+            btn.disabled = true;
+        }
+    }
+    saveUserData();
+}
+
+function createFish() {
+    return {
+        x: -40,
+        y: Math.random() * (canvas.height - 180) + 110,
+        speed: Math.random() * 1.5 + 1.2,
+        length: 24,
+        phase: Math.random() * Math.PI * 2
+    };
+}
+
+function createJellyfish() {
+    return {
+        x: -50,
+        y: Math.random() * (canvas.height - 200) + 130,
+        speed: Math.random() * 0.8 + 0.8,
+        radius: 20,
+        phase: Math.random() * Math.PI * 2
+    };
+}
+
+function drawEnvironment(time) {
+    const iceGrad = ctx.createLinearGradient(0, 0, 0, 80);
+    iceGrad.addColorStop(0, '#e0f2fe');
+    iceGrad.addColorStop(0.8, '#38bdf8');
+    iceGrad.addColorStop(1, 'rgba(56, 189, 248, 0.1)');
+    ctx.fillStyle = iceGrad;
+    ctx.fillRect(0, 0, canvas.width, 80);
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let x = 0; x <= canvas.width; x += 15) {
+        const y = 80 + Math.sin(x * 0.03 + time * 0.003) * 3;
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+    bubbles.forEach(b => {
+        b.y -= b.speed;
+        if (b.y < 80) {
+            b.y = canvas.height;
+            b.x = Math.random() * canvas.width;
+        }
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
+
+function drawSeal() {
+    ctx.save();
+    ctx.translate(seal.x, seal.y);
+
+    if (Math.abs(seal.vx) > 0.1 || Math.abs(seal.vy) > 0.1) {
+        seal.angle = Math.atan2(seal.vy, seal.vx);
+    }
+    
+    ctx.rotate(seal.angle);
+
+    seal.animTime += 0.08 + Math.hypot(seal.vx, seal.vy) * 0.05;
+    const tailWag = Math.sin(seal.animTime) * 0.22;
+    const flipperWag = Math.sin(seal.animTime * 0.8) * 0.15;
+
+    if (seal.boostTimer > 0) {
+        ctx.save();
+        ctx.strokeStyle = `rgba(245, 158, 11, ${0.4 + Math.sin(seal.animTime * 2) * 0.3})`;
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 42, 22, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // Задні ласти
+    ctx.fillStyle = '#1e293b';
+    ctx.save();
+    ctx.translate(-32, -3);
+    ctx.rotate(-0.18 + tailWag);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(-12, -6, -20, -12, -26, -9);
+    ctx.bezierCurveTo(-22, -3, -14, 0, -6, 3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(-32, 3);
+    ctx.rotate(0.18 + tailWag);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(-12, 6, -20, 12, -26, 9);
+    ctx.bezierCurveTo(-22, 3, -14, 0, -6, -3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Тіло
+    const bodyGrad = ctx.createLinearGradient(0, -20, 0, 20);
+    bodyGrad.addColorStop(0, '#334155');
+    bodyGrad.addColorStop(0.45, '#64748b');
+    bodyGrad.addColorStop(1, '#cbd5e1');
+
+    ctx.fillStyle = bodyGrad;
+    ctx.beginPath();
+    ctx.moveTo(38, 0); 
+    ctx.bezierCurveTo(28, -22, -4, -24, -32, -6); 
+    ctx.bezierCurveTo(-35, 0, -35, 0, -32, 6); 
+    ctx.bezierCurveTo(-4, 24, 28, 22, 38, 0); 
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
+    ctx.beginPath();
+    ctx.moveTo(25, -6);
+    ctx.bezierCurveTo(10, -20, -15, -18, -25, -5);
+    ctx.bezierCurveTo(-10, -8, 10, -8, 25, -6);
+    ctx.fill();
+
+    seal.spots.forEach(spot => {
+        ctx.fillStyle = `rgba(15, 23, 42, ${spot.opacity})`;
+        ctx.beginPath();
+        ctx.arc(spot.x, spot.y, spot.r, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    if (seal.accessories.tank) {
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(-12, -18, 24, 8);
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(-10, -16, 20, 4);
+    }
+
+    // Передня ласта
+    ctx.fillStyle = '#334155';
+    ctx.save();
+    ctx.translate(8, 8);
+    ctx.rotate(0.5 + flipperWag);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(-4, 12, -14, 22, -6, 25);
+    ctx.bezierCurveTo(3, 22, 10, 12, 3, 0);
+    ctx.fill();
+
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-3, 15); ctx.lineTo(-4, 22);
+    ctx.moveTo(0, 14); ctx.lineTo(0, 23);
+    ctx.moveTo(3, 12); ctx.lineTo(3.5, 21);
+    ctx.stroke();
+    ctx.restore();
+
+    if (seal.accessories.bow) {
+        ctx.fillStyle = '#dc2626';
+        ctx.beginPath();
+        ctx.moveTo(20, 8); ctx.lineTo(14, 4); ctx.lineTo(14, 12); ctx.closePath();
+        ctx.moveTo(20, 8); ctx.lineTo(26, 4); ctx.lineTo(26, 12); ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#991b1b';
+        ctx.beginPath(); ctx.arc(20, 8, 2.5, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Голова
+    ctx.fillStyle = '#e2e8f0';
+    ctx.beginPath();
+    ctx.ellipse(32, 3, 7, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(38, 0, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#020617';
+    ctx.beginPath();
+    ctx.arc(26, -7, 5, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(27.8, -8.8, 1.8, 0, Math.PI * 2);
+    ctx.arc(24.5, -5.5, 0.9, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (seal.accessories.glasses) {
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(20, -11, 13, 7);
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(20, -8); ctx.lineTo(14, -6); ctx.stroke();
+    }
+
+    if (seal.accessories.santaHat) {
+        ctx.fillStyle = '#dc2626';
+        ctx.beginPath();
+        ctx.moveTo(18, -10);
+        ctx.lineTo(30, -10);
+        ctx.lineTo(12, -26);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(16, -12, 16, 4);
+        ctx.beginPath(); ctx.arc(11, -26, 3, 0, Math.PI * 2); ctx.fill();
+    }
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(35, 1); ctx.quadraticCurveTo(42, -2, 48, -6);
+    ctx.moveTo(35, 3); ctx.quadraticCurveTo(44, 4, 50, 3);
+    ctx.moveTo(35, 5); ctx.quadraticCurveTo(43, 9, 47, 12);
+    ctx.stroke();
+
+    if (seal.eatAnimTimer > 0) {
+        ctx.fillStyle = '#f97316';
+        for (let i = 0; i < 4; i++) {
+            const rx = 36 + Math.cos(seal.eatAnimTimer + i) * 8;
+            const ry = Math.sin(seal.eatAnimTimer * 2 + i) * 8;
+            ctx.beginPath(); ctx.arc(rx, ry, 2, 0, Math.PI * 2); ctx.fill();
+        }
+    }
+
+    ctx.restore();
+}
+
+function drawFish(f) {
+    f.phase += 0.12;
+    ctx.save();
+    ctx.translate(f.x, f.y);
+
+    const tailWag = Math.sin(f.phase) * 0.3;
+
+    const fishGrad = ctx.createLinearGradient(-f.length/2, 0, f.length/2, 0);
+    fishGrad.addColorStop(0, '#ea580c');
+    fishGrad.addColorStop(1, '#f97316');
+
+    ctx.fillStyle = '#c2410c';
+    ctx.save();
+    ctx.translate(-f.length / 2, 0);
+    ctx.rotate(tailWag);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-8, -6);
+    ctx.lineTo(-6, 0);
+    ctx.lineTo(-8, 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = fishGrad;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, f.length / 2, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(f.length / 3, -2, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.arc(f.length / 3 + 0.5, -2, 1, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+function drawJellyfish(j) {
+    j.phase += 0.05;
+    ctx.save();
+    ctx.translate(j.x, j.y);
+
+    const pulse = Math.sin(j.phase) * 3;
+
+    const jGrad = ctx.createRadialGradient(0, -5, 2, 0, 0, j.radius);
+    jGrad.addColorStop(0, 'rgba(244, 114, 182, 0.8)');
+    jGrad.addColorStop(1, 'rgba(192, 38, 211, 0.4)');
+
+    ctx.fillStyle = jGrad;
+    ctx.beginPath();
+    ctx.arc(0, 0, j.radius + pulse / 2, Math.PI, 0);
+    ctx.quadraticCurveTo(0, 4, -j.radius - pulse / 2, 0);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(232, 121, 249, 0.6)';
+    ctx.lineWidth = 1.5;
+    for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * 5, 0);
+        const wave = Math.sin(j.phase + i) * 6;
+        ctx.quadraticCurveTo(i * 5 + wave, 15, i * 3, 28);
+        ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
+function update(time) {
+    if (gameOver || !gameStarted) return;
+
+    if (seal.boostTimer > 0) {
+        seal.boostTimer--;
+        seal.speed = seal.baseSpeed * 1.5;
+    } else {
+        seal.speed = seal.baseSpeed;
+    }
+
+    if (seal.eatAnimTimer > 0) {
+        seal.eatAnimTimer--;
+    }
+
+    if (keys['ArrowUp'] || keys['KeyW']) seal.vy -= seal.speed;
+    if (keys['ArrowDown'] || keys['KeyS']) seal.vy += seal.speed;
+    if (keys['ArrowLeft'] || keys['KeyA']) seal.vx -= seal.speed;
+    if (keys['ArrowRight'] || keys['KeyD']) seal.vx += seal.speed;
+
+    seal.vx *= seal.friction;
+    seal.vy *= seal.friction;
+
+    seal.x += seal.vx;
+    seal.y += seal.vy;
+
+    if (seal.x < seal.radius) seal.x = seal.radius;
+    if (seal.x > canvas.width - seal.radius) seal.x = canvas.width - seal.radius;
+    if (seal.y > canvas.height - seal.radius) seal.y = canvas.height - seal.radius;
+
+    if (seal.y <= 90) {
+        seal.air = Math.min(seal.maxAir, seal.air + 1.2);
+    } else {
+        seal.air -= 0.06;
+    }
+
+    if (seal.air <= 0) {
+        seal.air = 0;
+        endGame("Закінчився кисень!");
+    }
+
+    if (Math.random() < 0.025) fishes.push(createFish());
+    if (Math.random() < 0.008) hazards.push(createJellyfish());
+
+    fishes.forEach((f, i) => {
+        f.x += f.speed;
+        const dist = Math.hypot(seal.x - f.x, seal.y - f.y);
+        if (dist < seal.radius + f.length / 2) {
+            currency += 1;
+            fishes.splice(i, 1);
+            saveUserData();
+            sendTLToBot(1);
+        }
+    });
+
+    hazards.forEach((h) => {
+        h.x += h.speed;
+        const dist = Math.hypot(seal.x - h.x, seal.y - h.y);
+        if (dist < seal.radius + h.radius - 4) {
+            endGame("Зіткнення з медузою!");
+        }
+    });
+
+    fishes = fishes.filter(f => f.x < canvas.width + 50);
+    hazards = hazards.filter(h => h.x < canvas.width + 50);
+
+    const airPercent = Math.max(0, Math.round((seal.air / seal.maxAir) * 100));
+    document.getElementById('score').innerText = `Тюлери: ${currency} TL`;
+    document.getElementById('air').innerText = `Запас кисню: ${airPercent}%`;
+}
+
+function render(time) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    drawEnvironment(time);
+    fishes.forEach(drawFish);
+    hazards.forEach(drawJellyfish);
+    drawSeal();
+
+    if (gameOver) {
+        ctx.fillStyle = 'rgba(2, 6, 23, 0.85)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = '700 36px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('ГРА ЗАВЕРШЕНА', canvas.width / 2, canvas.height / 2 - 40);
+        
+        ctx.font = '22px sans-serif';
+        ctx.fillStyle = '#ef4444';
+        ctx.fillText(gameOverReason, canvas.width / 2, canvas.height / 2);
+
+        ctx.font = '18px sans-serif';
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(`Зароблено: ${currency} TL`, canvas.width / 2, canvas.height / 2 + 35);
+        ctx.fillText('Оновіть сторінку (F5), щоб зіграти знову', canvas.width / 2, canvas.height / 2 + 75);
+    }
+}
+
+function endGame(reason) {
+    gameOver = true;
+    gameOverReason = reason;
+    saveUserData();
+}
+
+function gameLoop(time) {
+    update(time);
+    render(time);
+    requestAnimationFrame(gameLoop);
+}
+
+requestAnimationFrame(gameLoop);
+</script>
+
+</body>
+</html>

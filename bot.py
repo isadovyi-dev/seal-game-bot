@@ -22,26 +22,24 @@ def get_player(user_id):
         }
     return players[user_id]
 
-# --- 100 УНІКАЛЬНИХ КАРТОК (ВЛАСНА КАРТИНКА ТА НАЗВА ДЛЯ КОЖНОЇ) ---
-# Базові надійні посилання на фото тюленів
+# --- 100% ТІЛЬКИ ТЮЛЕНІ (СТАБІЛЬНІ ПРЯМІ ПОСИЛАННЯ) ---
 SEAL_PHOTOS = [
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Common_seal_2007-08-12.jpg/800px-Common_seal_2007-08-12.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Harbor_seal_at_Kachemak_Bay.jpg/800px-Harbor_seal_at_Kachemak_Bay.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Harbor_Seal_%28Phoca_vitulina%29_-_San_Diego%2C_CA.jpg/800px-Harbor_Seal_%28Phoca_vitulina%29_-_San_Diego%2C_CA.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Phoca_vitulina_1.jpg/800px-Phoca_vitulina_1.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Harbor_seal_resting.jpg/800px-Harbor_seal_resting.jpg"
+    "https://raw.githubusercontent.com/TelegramBots/book/master/src/concept/photo.jpg", # Запасне фото
+    "https://cdn.pixabay.com/photo/2016/12/13/22/39/seals-1905292_1280.jpg",
+    "https://cdn.pixabay.com/photo/2019/08/19/13/58/seal-4416521_1280.jpg",
+    "https://cdn.pixabay.com/photo/2017/08/06/12/06/seal-2591905_1280.jpg",
+    "https://cdn.pixabay.com/photo/2020/03/11/15/45/seal-4922485_1280.jpg"
 ]
 
 TITLES_EPIC = [
-    "Повелитель Айсбергів", "Адмірал Глибин", "Примарний Мисливець", "Крижаний Воїн", 
-    "Сонний Созерцатель", "Хранитель Океану", "Шпигун Холодного Моря", "Мастер Риболовлі",
+    "Повелитель Айсбергів", "Адмірал Глибин", "Примарний Тюлень", "Крижаний Воїн", 
+    "Сонний Тюлень", "Хранитель Океану", "Шпигун Холодного Моря", "Мастер Риболовлі",
     "Король Ластів", "Великий Вусань", "Гроза Атлантики", "Морський Ніндзя"
 ]
 
 CARDS_DATABASE = {}
 
 for card_id in range(1, 101):
-    # Визначаємо рідкісність
     if card_id <= 50:
         rarity, weight = "⚪ Звичайна (Common)", 50
         prefix = "Обучений"
@@ -55,11 +53,8 @@ for card_id in range(1, 101):
         rarity, weight = "🟡 МІФІЧНА (Legendary)", 5
         prefix = "Божественний"
 
-    # Цікава назва для кожної картки
     title = random.choice(TITLES_EPIC)
     card_name = f"{prefix} {title} #{card_id}"
-    
-    # Фотографія прив'язана до ID картки
     photo_url = SEAL_PHOTOS[(card_id - 1) % len(SEAL_PHOTOS)]
 
     CARDS_DATABASE[card_id] = {
@@ -109,7 +104,6 @@ async def process_main_menu(callback: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data == "fish")
 async def process_fish(callback: types.CallbackQuery):
     player = get_player(callback.from_user.id)
-    
     earned_tl = random.randint(2, 15)
     player["balance"] += earned_tl
     
@@ -147,7 +141,6 @@ async def process_buy_card(callback: types.CallbackQuery):
 
     player["balance"] -= 10
     
-    # Вибір картки
     cards_list = list(CARDS_DATABASE.values())
     weights = [c["weight"] for c in cards_list]
     chosen_card = random.choices(cards_list, weights=weights, k=1)[0]
@@ -197,7 +190,7 @@ async def process_collection(callback: types.CallbackQuery):
     )
     await callback.answer()
 
-# --- ВЕБ-СЕРВЕР ДЛЯ RENDER (24/7) ---
+# --- ВЕБ-СЕРВЕР ДЛЯ RENDER ---
 async def handle_ping(request):
     return web.Response(text="Bot is alive!")
 

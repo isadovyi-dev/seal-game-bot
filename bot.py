@@ -1,7 +1,8 @@
 import os
+import json
 import random
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -12,37 +13,67 @@ TOKEN = "8072842801:AAHgOyzmksuZrYOGnoSSYmsgVEOKUxklMcA"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# --- ГЛОБАЛЬНА БАЗА ДАНИХ ГРАВЦІВ ---
-PLAYERS_DB = {}
+DB_FILE = "players.json"
+
+# --- НАДІЙНА РЕЗЕРВОВАНА БАЗА ДАНИХ (ФАЙЛ JSON) ---
+def load_data():
+    if not os.path.exists(DB_FILE):
+        return {}
+    try:
+        with open(DB_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            # Конвертуємо списки назад у set() для колекцій
+            for user_id in data:
+                data[user_id]["collection"] = set(data[user_id]["collection"])
+            return data
+    except Exception:
+        return {}
+
+def save_data(data):
+    # Серіалізуємо set() у list() для зберігання в JSON
+    serializable_data = {}
+    for user_id, p_data in data.items():
+        serializable_data[str(user_id)] = {
+            "balance": p_data["balance"],
+            "collection": list(p_data["collection"]),
+            "fish_attempts": p_data["fish_attempts"],
+            "last_fish_date": p_data["last_fish_date"]
+        }
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(serializable_data, f, ensure_ascii=False, indent=4)
+
+PLAYERS_DB = load_data()
 
 def get_player_data(user_id: int):
-    if user_id not in PLAYERS_DB:
-        PLAYERS_DB[user_id] = {
+    user_str = str(user_id)
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    
+    if user_str not in PLAYERS_DB:
+        PLAYERS_DB[user_str] = {
             "balance": 0,
             "collection": set(),
             "fish_attempts": 0,
-            "last_reset": datetime.now()
+            "last_fish_date": today_str
         }
     
-    player = PLAYERS_DB[user_id]
+    player = PLAYERS_DB[user_str]
     
-    # Скидання щоденного ліміту риболовлі
-    if datetime.now() - player["last_reset"] >= timedelta(days=1):
+    # Автоматичне скидання ліміту о 00:00 нового дня
+    if player["last_fish_date"] != today_str:
         player["fish_attempts"] = 0
-        player["last_reset"] = datetime.now()
+        player["last_fish_date"] = today_str
         
+    save_data(PLAYERS_DB)
     return player
 
-# --- 100% ФОТО ТЮЛЕНІВ ---
+# --- ФОТО ТЮЛЕНІВ (ЗМІНЕНІ НА НАДІЙНІ UNPASH URL) ---
 SEAL_PHOTOS = [
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Common_seal_2007-08-12.jpg/800px-Common_seal_2007-08-12.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Harbor_seal_at_Kachemak_Bay.jpg/800px-Harbor_seal_at_Kachemak_Bay.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Harbor_Seal_%28Phoca_vitulina%29_-_San_Diego%2C_CA.jpg/800px-Harbor_Seal_%28Phoca_vitulina%29_-_San_Diego%2C_CA.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Phoca_vitulina_1.jpg/800px-Phoca_vitulina_1.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Harbor_seal_resting.jpg/800px-Harbor_seal_resting.jpg"
+    "https://images.unsplash.com/photo-1551085254-e96b210df58a?w=800",
+    "https://images.unsplash.com/photo-1598439210625-5067c578f3f6?w=800",
+    "https://images.unsplash.com/photo-1575550959106-5a7defe28b56?w=800",
+    "https://images.unsplash.com/photo-1541781774459-bb2af2f05b55?w=800"
 ]
 
-# --- 100 АДЕКВАТНИХ НАЗВ ---
 CARD_NAMES = [
     "🦭 Сонний Тюленчик", "🦭 Малий Вусань", "🦭 Пухлик", "🦭 Морська Коржика", "🦭 Рибоед",
     "🦭 Товстун", "🦭 Любитель Сну", "🦭 Пляжний Лежень", "🦭 Плямистий Тюлень", "🦭 Маленький Пловець",
@@ -69,13 +100,13 @@ CARD_NAMES = [
 CARDS_DATABASE = {}
 for idx in range(1, 101):
     if idx <= 50:
-        rarity, weight = "⚪ Звичайна (Common)", 50
+        rarity, weight = "⚪ Звичайна", 50
     elif idx <= 80:
-        rarity, weight = "🔵 Рідкісна (Rare)", 30
+        rarity, weight = "🔵 Рідкісна", 30
     elif idx <= 95:
-        rarity, weight = "🟣 Епічна (Epic)", 15
+        rarity, weight = "🟣 Епічна", 15
     else:
-        rarity, weight = "🟡 МІФІЧНА (Legendary)", 5
+        rarity, weight = "🟡 МІФІЧНА", 5
 
     CARDS_DATABASE[idx] = {
         "id": idx,
@@ -111,7 +142,7 @@ async def cmd_start(message: types.Message):
         "🦭 **Вітаю у Seal Game!**\n\n"
         "1. Лови рибу (максимум **2 рази на день**).\n"
         "2. Витрачай TL на купівлю **100 унікальних карток** (1 картка = 10 TL).\n"
-        "3. Збери всю колекцію (100/100) та отримай бонус **+1000 TL**!",
+        "3. Збирай власну колекцію та стань найкращим рибалкою!",
         reply_markup=get_main_keyboard(),
         parse_mode="Markdown"
     )
@@ -128,7 +159,7 @@ async def process_fish(callback: types.CallbackQuery):
     if player["fish_attempts"] >= 2:
         await callback.message.answer(
             "⏳ **Ліміт риболовлі вичерпано!**\n\n"
-            "Ти вже зловив рибу 2 рази сьогодні. Приходь завтра!",
+            "Ти вже зловив рибу 2 рази сьогодні (2/2). Приходь завтра!",
             reply_markup=get_main_keyboard(),
             parse_mode="Markdown"
         )
@@ -138,6 +169,7 @@ async def process_fish(callback: types.CallbackQuery):
     player["fish_attempts"] += 1
     earned_tl = random.randint(5, 12)
     player["balance"] += earned_tl
+    save_data(PLAYERS_DB)
     
     fish_types = ["🐟 Маленьку рибку", "🐠 Тропічну рибку", "🐟 Велику тріску", "🦀 Краба", "🦐 Креветку"]
     caught = random.choice(fish_types)
@@ -146,7 +178,7 @@ async def process_fish(callback: types.CallbackQuery):
         f"🎣 **Вдала риболовля!** ({player['fish_attempts']}/2 сьогодні)\n\n"
         f"Ти спіймав: **{caught}**\n"
         f"Зароблено: **+{earned_tl} TL** 💰\n"
-        f"Твій баланс: **{player['balance']} TL**"
+        f"Твій новий баланс: **{player['balance']} TL**"
     )
     
     await callback.message.answer(text, reply_markup=get_back_keyboard(), parse_mode="Markdown")
@@ -188,12 +220,14 @@ async def process_buy_card(callback: types.CallbackQuery):
     is_new = chosen_card["id"] not in player["collection"]
     player["collection"].add(chosen_card["id"])
     
-    status_text = "✨ **НОВА УНІКАЛЬНА КАРТКА!**" if is_new else "🔄 Така картка вже є в колекції."
-    
     bonus_text = ""
     if len(player["collection"]) == 100 and is_new:
         player["balance"] += 1000
         bonus_text = "\n\n🎉 **ВІТАЄМО! Ти зібрав усі 100 карток і отримав бонус +1000 TL!** 🏆"
+
+    save_data(PLAYERS_DB)
+
+    status_text = "✨ **НОВА УНІКАЛЬНА КАРТКА!**" if is_new else "🔄 Така картка вже є в колекції."
 
     caption = (
         f"{status_text}\n\n"
@@ -216,15 +250,52 @@ async def process_buy_card(callback: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data == "my_collection")
 async def process_collection(callback: types.CallbackQuery):
     player = get_player_data(callback.from_user.id)
-    count = len(player["collection"])
+    collected_ids = sorted(list(player["collection"]))
     
-    await callback.message.answer(
-        f"📦 **Твоя колекція:**\n\n"
-        f"Зібрано: **{count} з 100** унікальних карток.\n"
-        f"Залишилося знайти: **{100 - count}**.",
-        reply_markup=get_main_keyboard(),
-        parse_mode="Markdown"
-    )
+    if not collected_ids:
+        text = "📦 **Твоя колекція порожня!**\n\nКупи свою першу картку в магазині за 10 TL."
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🃏 Купити картку (10 TL)", callback_data="buy_card")
+        builder.button(text="🏠 Головне меню", callback_data="main_menu")
+        builder.adjust(1)
+        await callback.message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+        await callback.answer()
+        return
+
+    text = f"📦 **Твоя колекція ({len(collected_ids)}/100):**\n\nОбери картку для перегляду:\n"
+    builder = InlineKeyboardBuilder()
+    
+    for card_id in collected_ids:
+        card = CARDS_DATABASE[card_id]
+        builder.button(text=f"{card['name']} [{card['rarity'].split()[0]}]", callback_data=f"view_card_{card_id}")
+    
+    builder.button(text="🏠 Головне меню", callback_data="main_menu")
+    builder.adjust(1)
+    
+    await callback.message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("view_card_"))
+async def process_view_card(callback: types.CallbackQuery):
+    card_id = int(callback.data.split("_")[2])
+    card = CARDS_DATABASE.get(card_id)
+    
+    if card:
+        caption = (
+            f"🃏 Картка:\n"
+            f"✨ Рідкісність:"
+        )
+        builder = InlineKeyboardBuilder()
+        builder.button(text="📦 Назад до колекції", callback_data="my_collection")
+        builder.button(text="🏠 Головне меню", callback_data="main_menu")
+        builder.adjust(1)
+
+        await callback.message.answer_photo(
+            photo=card["image"],
+            caption=caption,
+            reply_markup=builder.as_markup(),
+            parse_mode="Markdown"
+        )
     await callback.answer()
 
 # --- ВЕБ-СЕРВЕР ---

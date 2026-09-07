@@ -17,48 +17,57 @@ players = {}
 def get_player(user_id):
     if user_id not in players:
         players[user_id] = {
-            "balance": 0,       # Початковий баланс 0 TL
-            "collection": set() # Збережені унікальні ID карток
+            "balance": 0,
+            "collection": set()
         }
     return players[user_id]
 
-# --- ФОТО ТЮЛЕНІВ ---
-SEAL_IMAGES = [
-    "https://images.unsplash.com/photo-1598439210625-5067c578f3f6?w=800",
-    "https://images.unsplash.com/photo-1551244072-5d12893278ab?w=800",
-    "https://images.unsplash.com/photo-1575550959106-5a7defe28b56?w=800",
-    "https://images.unsplash.com/photo-1534567153574-2b12153a87f0?w=800",
-    "https://images.unsplash.com/photo-1517849845537-4d257902454a?w=800"
+# --- 100 УНІКАЛЬНИХ КАРТОК (ВЛАСНА КАРТИНКА ТА НАЗВА ДЛЯ КОЖНОЇ) ---
+# Базові надійні посилання на фото тюленів
+SEAL_PHOTOS = [
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Common_seal_2007-08-12.jpg/800px-Common_seal_2007-08-12.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Harbor_seal_at_Kachemak_Bay.jpg/800px-Harbor_seal_at_Kachemak_Bay.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Harbor_Seal_%28Phoca_vitulina%29_-_San_Diego%2C_CA.jpg/800px-Harbor_Seal_%28Phoca_vitulina%29_-_San_Diego%2C_CA.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Phoca_vitulina_1.jpg/800px-Phoca_vitulina_1.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Harbor_seal_resting.jpg/800px-Harbor_seal_resting.jpg"
 ]
 
-# --- 100 УНІКАЛЬНИХ КАРТОК ---
-ADJECTIVES = ["Морський", "Крижаний", "Швидкий", "Сонний", "Рідкісний", "Срібний", "Золотий", "Вогняний", "Примарний", "Королівський"]
-TITLES = ["Тюлень", "Морж", "Нерпа", "Малюк", "Барон", "Капітан", "Герой", "Захисник", "Володар", "Шпигун"]
+TITLES_EPIC = [
+    "Повелитель Айсбергів", "Адмірал Глибин", "Примарний Мисливець", "Крижаний Воїн", 
+    "Сонний Созерцатель", "Хранитель Океану", "Шпигун Холодного Моря", "Мастер Риболовлі",
+    "Король Ластів", "Великий Вусань", "Гроза Атлантики", "Морський Ніндзя"
+]
 
 CARDS_DATABASE = {}
-used_names = set()
 
 for card_id in range(1, 101):
+    # Визначаємо рідкісність
     if card_id <= 50:
         rarity, weight = "⚪ Звичайна (Common)", 50
+        prefix = "Обучений"
     elif card_id <= 80:
         rarity, weight = "🔵 Рідкісна (Rare)", 30
+        prefix = "Шляхетний"
     elif card_id <= 95:
         rarity, weight = "🟣 Епічна (Epic)", 15
+        prefix = "Легендарний"
     else:
-        rarity, weight = "🟡 Легендарна (Legendary)", 5
+        rarity, weight = "🟡 МІФІЧНА (Legendary)", 5
+        prefix = "Божественний"
 
-    while True:
-        name = f"{random.choice(ADJECTIVES)} {random.choice(TITLES)} #{card_id}"
-        if name not in used_names:
-            used_names.add(name)
-            break
+    # Цікава назва для кожної картки
+    title = random.choice(TITLES_EPIC)
+    card_name = f"{prefix} {title} #{card_id}"
+    
+    # Фотографія прив'язана до ID картки
+    photo_url = SEAL_PHOTOS[(card_id - 1) % len(SEAL_PHOTOS)]
 
     CARDS_DATABASE[card_id] = {
         "id": card_id,
-        "name": name,
+        "name": card_name,
         "rarity": rarity,
-        "weight": weight
+        "weight": weight,
+        "image": photo_url
     }
 
 # --- КЛАВІАТУРИ ---
@@ -85,9 +94,9 @@ async def cmd_start(message: types.Message):
     get_player(message.from_user.id)
     await message.answer(
         "🦭 **Вітаю у Seal Game!**\n\n"
-        "1. Лови рибу, щоб заробляти валюту **TL**.\n"
+        "1. Лови рибу, щоб заробляти **TL**.\n"
         "2. Витрачай TL на купівлю **100 унікальних карток тюленів** (1 картка = 10 TL).\n"
-        "3. Збери всю колекцію (100/100) та отримай мега-бонус **+1000 TL**!",
+        "3. Збери всю колекцію (100/100) та отримай бонус **+1000 TL**!",
         reply_markup=get_main_keyboard(),
         parse_mode="Markdown"
     )
@@ -101,18 +110,17 @@ async def process_main_menu(callback: types.CallbackQuery):
 async def process_fish(callback: types.CallbackQuery):
     player = get_player(callback.from_user.id)
     
-    # Випадковий улов
-    earned_tl = random.randint(1, 15)
+    earned_tl = random.randint(2, 15)
     player["balance"] += earned_tl
     
-    fish_types = ["🐟 Маленьку рибку", "🐠 Тропічну рибку", "үүл Велику тріску", "🦀 Краба", "Креветку 🦐"]
+    fish_types = ["🐟 Маленьку рибку", "🐠 Тропічну рибку", "🐟 Велику тріску", "🦀 Краба", "🦐 Креветку"]
     caught = random.choice(fish_types)
     
     text = (
         f"🎣 **Вдала риболовля!**\n\n"
         f"Ти спіймав: **{caught}**\n"
         f"Зароблено: **+{earned_tl} TL** 💰\n"
-        f"Твій поточний баланс: **{player['balance']} TL**"
+        f"Твій баланс: **{player['balance']} TL**"
     )
     
     await callback.message.answer(text, reply_markup=get_back_keyboard(), parse_mode="Markdown")
@@ -139,15 +147,15 @@ async def process_buy_card(callback: types.CallbackQuery):
 
     player["balance"] -= 10
     
+    # Вибір картки
     cards_list = list(CARDS_DATABASE.values())
     weights = [c["weight"] for c in cards_list]
     chosen_card = random.choices(cards_list, weights=weights, k=1)[0]
-    chosen_image = random.choice(SEAL_IMAGES)
     
     is_new = chosen_card["id"] not in player["collection"]
     player["collection"].add(chosen_card["id"])
     
-    status_text = "✨ **НОВА КАРТКА У КОЛЕКЦІЮ!**" if is_new else "🔄 Така картка вже є (повторка)."
+    status_text = "✨ **НОВА УНІКАЛЬНА КАРТКА!**" if is_new else "🔄 Така картка вже є в колекції."
     
     bonus_text = ""
     if len(player["collection"]) == 100 and is_new:
@@ -156,16 +164,16 @@ async def process_buy_card(callback: types.CallbackQuery):
 
     caption = (
         f"{status_text}\n\n"
-        f"🃏 **{chosen_card['name']}**\n"
-        f"✨ Рідкісність: {chosen_card['rarity']}\n"
-        f"💰 Залишок балансу: **{player['balance']} TL**\n"
-        f"📦 Колекція: **{len(player['collection'])}/100**"
+        f"🃏 **Картка:** {chosen_card['name']}\n"
+        f"✨ **Рідкісність:** {chosen_card['rarity']}\n"
+        f"💰 **Залишок балансу:** {player['balance']} TL\n"
+        f"📦 **Колекція:** {len(player['collection'])}/100"
         f"{bonus_text}"
     )
     
     try:
         await callback.message.answer_photo(
-            photo=chosen_image,
+            photo=chosen_card["image"],
             caption=caption,
             reply_markup=get_back_keyboard(),
             parse_mode="Markdown"

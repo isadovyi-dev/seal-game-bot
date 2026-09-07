@@ -12,7 +12,7 @@ TOKEN = "8072842801:AAHgOyzmksuZrYOGnoSSYmsgVEOKUxklMcA"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# --- СТАБІЛЬНА БАЗА ДАНИХ ГРАВЦІВ ---
+# --- БАЗА ДАНИХ ГРАВЦІВ ---
 PLAYERS_DB = {}
 
 def get_player_data(user_id: int):
@@ -58,14 +58,7 @@ CARD_NAMES = [
     "🦭 Божественний Тюлень Океану", "🦭 Древній Хранитель Глибин", "🦭 Легендарний Повелитель Штормів", "🦭 Полярний Властелик Світу", "🦭 Нефритовий Божественний Вусань"
 ]
 
-# --- 100 УНІКАЛЬНИХ ФОТОГРАФІЙ ТЮЛЕНІВ (1 КАРТКА = 1 ФОТО ТЮЛЕНЯ) ---
-SEAL_PHOTOS_100 = [
-    f"https://raw.githubusercontent.com/fabiocaccamo/python-seal/main/art/seal_{i}.jpg" if i <= 10 else
-    f"https://images.unsplash.com/photo-1551085254-e96b210db58a?w=800" for i in range(1, 101)
-]
-
-# Генерація точних посилань з баз Wikimedia Commons & Unsplash для всіх 100 карток
-CARDS_DATABASE = {}
+# --- БАЗА ЗОБРАЖЕНЬ ТЮЛЕНІВ С З ВІКІМЕДІЇ ---
 BASE_SEAL_URLS = [
     "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Common_seal_2007-08-12.jpg/800px-Common_seal_2007-08-12.jpg",
     "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Harbor_seal_at_Kachemak_Bay.jpg/800px-Harbor_seal_at_Kachemak_Bay.jpg",
@@ -77,6 +70,7 @@ BASE_SEAL_URLS = [
     "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Common_seal_Phoca_vitulina.jpg/800px-Common_seal_Phoca_vitulina.jpg"
 ]
 
+CARDS_DATABASE = {}
 for idx in range(1, 101):
     if idx <= 50:
         rarity, weight = "⚪ Звичайна", 50
@@ -87,15 +81,12 @@ for idx in range(1, 101):
     else:
         rarity, weight = "🟡 МІФІЧНА", 5
 
-    # Власний фото-ідентифікатор для кожної картки (гарантує суто тюленів без повторів)
-    seal_image_url = BASE_SEAL_URLS[(idx - 1) % len(BASE_SEAL_URLS)]
-
     CARDS_DATABASE[idx] = {
         "id": idx,
         "name": f"{CARD_NAMES[idx - 1]} #{idx}",
         "rarity": rarity,
         "weight": weight,
-        "image": seal_image_url
+        "image": BASE_SEAL_URLS[(idx - 1) % len(BASE_SEAL_URLS)]
     }
 
 # --- КЛАВІАТУРИ ---
@@ -124,7 +115,7 @@ async def cmd_start(message: types.Message):
         "🦭 **Вітаю у Seal Game!**\n\n"
         "1. Лови рибу (максимум **2 рази на день**).\n"
         "2. Витрачай TL на купівлю **100 унікальних карток тюленів** (1 картка = 10 TL).\n"
-        "3. Збирай колекцію та дивись картки в профілі!",
+        "3. Збирай колекцію та переглядай картки!",
         reply_markup=get_main_keyboard(),
         parse_mode="Markdown"
     )
@@ -181,6 +172,7 @@ async def process_profile(callback: types.CallbackQuery):
 async def process_buy_card(callback: types.CallbackQuery):
     player = get_player_data(callback.from_user.id)
     
+    # ПЕРЕВІРКА БАЛАНСУ ДО СПИСАННЯ КОШТІВ
     if player["balance"] < 10:
         await callback.message.answer(
             f"❌ **Нестача коштів!**\n\n"
@@ -192,6 +184,7 @@ async def process_buy_card(callback: types.CallbackQuery):
         await callback.answer()
         return
 
+    # СПИСАННЯ ТІЛЬКИ ПІСЛЯ УСПІШНОЇ ПЕРЕВІРКИ
     player["balance"] -= 10
     
     cards_list = list(CARDS_DATABASE.values())

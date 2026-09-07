@@ -12,26 +12,28 @@ TOKEN = "8072842801:AAHgOyzmksuZrYOGnoSSYmsgVEOKUxklMcA"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# --- БАЗА ГРАВЦІВ ---
-players = {}
+# --- ГЛОБАЛЬНА БАЗА ДАНИХ ГРАВЦІВ ---
+PLAYERS_DB = {}
 
-def get_player(user_id):
-    if user_id not in players:
-        players[user_id] = {
+def get_player_data(user_id: int):
+    if user_id not in PLAYERS_DB:
+        PLAYERS_DB[user_id] = {
             "balance": 0,
             "collection": set(),
             "fish_attempts": 0,
-            "last_fish_reset": datetime.now()
+            "last_reset": datetime.now()
         }
     
-    player = players[user_id]
-    if datetime.now() - player["last_fish_reset"] > timedelta(days=1):
+    player = PLAYERS_DB[user_id]
+    
+    # Скидання щоденного ліміту риболовлі
+    if datetime.now() - player["last_reset"] >= timedelta(days=1):
         player["fish_attempts"] = 0
-        player["last_fish_reset"] = datetime.now()
+        player["last_reset"] = datetime.now()
         
     return player
 
-# --- 100% ТЮЛЕНІ ---
+# --- 100% ФОТО ТЮЛЕНІВ ---
 SEAL_PHOTOS = [
     "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Common_seal_2007-08-12.jpg/800px-Common_seal_2007-08-12.jpg",
     "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Harbor_seal_at_Kachemak_Bay.jpg/800px-Harbor_seal_at_Kachemak_Bay.jpg",
@@ -40,9 +42,8 @@ SEAL_PHOTOS = [
     "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Harbor_seal_resting.jpg/800px-Harbor_seal_resting.jpg"
 ]
 
-# --- РУЧНИЙ СПИСОК ІЗ 100 НОРМАЛЬНИХ НАЗВ ---
+# --- 100 АДЕКВАТНИХ НАЗВ ---
 CARD_NAMES = [
-    # 1-50: Звичайні (⚪)
     "🦭 Сонний Тюленчик", "🦭 Малий Вусань", "🦭 Пухлик", "🦭 Морська Коржика", "🦭 Рибоед",
     "🦭 Товстун", "🦭 Любитель Сну", "🦭 Пляжний Лежень", "🦭 Плямистий Тюлень", "🦭 Маленький Пловець",
     "🦭 Вусатий Друг", "🦭 Сніжний Тюлень", "🦭 Морозний Пухляш", "🦭 Морський Батон", "🦭 Рибний Злодій",
@@ -53,44 +54,35 @@ CARD_NAMES = [
     "🦭 Пухнастий Ласт", "🦭 Острівний Тюлень", "🦭 Гребець Глибин", "🦭 Тюлень-Ласун", "🦭 Морський Вусань",
     "🦭 Риболов Малюк", "🦭 Сірий Тюлень", "🦭 Плямистий Нирець", "🦭 Арктичний Пухлик", "🦭 Морський Сплюх",
     "🦭 Тюлень-Карапуз", "🦭 Морозний Вусань", "🦭 Малий Глибинник", "🦭 Океанський Дружок", "🦭 Тюлень-Ластоног",
-
-    # 51-80: Рідкісні (🔵)
     "🦭 Штормовий Плавець", "🦭 Мисливець за Лососем", "🦭 Глибинний Шпигун", "🦭 Північний Страж", "🦭 Срібний Вусань",
     "🦭 Капітан Ластів", "🦭 Арктичний Мисливець", "🦭 Крижаний Нирець", "🦭 Повелитель Волн", "🦭 Швидкісний Тюлень",
     "🦭 Гроза Тріски", "🦭 Страж Айсбергів", "🦭 Темноводний Тюлень", "🦭 Сталевий Вусань", "🦭 Нічний Пловець",
     "🦭 Полярний Капітан", "🦭 Морський Снайпер", "🦭 Сріблястий Страж", "🦭 Майстер Риболовлі", "🦭 Океанський Блукач",
     "🦭 Штормовий Вусань", "🦭 Морозний Страж", "🦭 Глибинний Шукач", "🦭 Морський Вовк", "🦭 Полярний Розвідник",
     "🦭 Арктичний Захисник", "🦭 Вонистий Тюлень", "🦭 Легенда Рибалок", "🦭 Срібний Ласт", "🦭 Примарний Нирець",
-
-    # 81-95: Епічні (🟣)
     "🦭 Адмірал Холодних Морей", "🦭 Володар Айсбергів", "🦭 Примарний Вусань", "🦭 Страж Північного Сяйва", "🦭 Глибинний Титан",
     "🦭 Атлантичний Воїн", "🦭 Володар Полярних Вод", "🦭 Крижаний Берсерк", "🦭 Тюлень-Ніндзя", "🦭 Король Глибин",
     "🦭 Штормовий Титан", "🦭 Арктичний Легендар", "🦭 Страж Океану", "🦭 Примарний Мисливець", "🦭 Володар Течій",
-
-    # 96-100: Міфічні (🟡)
     "🦭 Божественний Тюлень Океану", "🦭 Древній Хранитель Глибин", "🦭 Легендарний Повелитель Штормів", "🦭 Полярний Властелик Світу", "🦭 Нефритовий Божественний Вусань"
 ]
 
 CARDS_DATABASE = {}
-
-for card_id in range(1, 101):
-    if card_id <= 50:
+for idx in range(1, 101):
+    if idx <= 50:
         rarity, weight = "⚪ Звичайна (Common)", 50
-    elif card_id <= 80:
+    elif idx <= 80:
         rarity, weight = "🔵 Рідкісна (Rare)", 30
-    elif card_id <= 95:
+    elif idx <= 95:
         rarity, weight = "🟣 Епічна (Epic)", 15
     else:
         rarity, weight = "🟡 МІФІЧНА (Legendary)", 5
 
-    photo_url = SEAL_PHOTOS[(card_id - 1) % len(SEAL_PHOTOS)]
-
-    CARDS_DATABASE[card_id] = {
-        "id": card_id,
-        "name": f"{CARD_NAMES[card_id - 1]} #{card_id}",
+    CARDS_DATABASE[idx] = {
+        "id": idx,
+        "name": f"{CARD_NAMES[idx - 1]} #{idx}",
         "rarity": rarity,
         "weight": weight,
-        "image": photo_url
+        "image": SEAL_PHOTOS[(idx - 1) % len(SEAL_PHOTOS)]
     }
 
 # --- КЛАВІАТУРИ ---
@@ -111,10 +103,10 @@ def get_back_keyboard():
     builder.adjust(2)
     return builder.as_markup()
 
-# --- ОБРОБНИКИ ---
+# --- ОБРОБНИКИ КОМАНД ТА КНОПОК ---
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    get_player(message.from_user.id)
+    get_player_data(message.from_user.id)
     await message.answer(
         "🦭 **Вітаю у Seal Game!**\n\n"
         "1. Лови рибу (максимум **2 рази на день**).\n"
@@ -131,7 +123,7 @@ async def process_main_menu(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "fish")
 async def process_fish(callback: types.CallbackQuery):
-    player = get_player(callback.from_user.id)
+    player = get_player_data(callback.from_user.id)
     
     if player["fish_attempts"] >= 2:
         await callback.message.answer(
@@ -162,7 +154,7 @@ async def process_fish(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "profile")
 async def process_profile(callback: types.CallbackQuery):
-    player = get_player(callback.from_user.id)
+    player = get_player_data(callback.from_user.id)
     text = (
         f"👤 **Твій профіль:**\n\n"
         f"💰 Баланс: **{player['balance']} TL**\n"
@@ -174,12 +166,12 @@ async def process_profile(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "buy_card")
 async def process_buy_card(callback: types.CallbackQuery):
-    player = get_player(callback.from_user.id)
+    player = get_player_data(callback.from_user.id)
     
     if player["balance"] < 10:
         await callback.message.answer(
             f"❌ **Нестача коштів!**\n\n"
-            f"Картка коштує **10 TL**, а у тебе **{player['balance']} TL**.\n"
+            f"Картка коштує **10 TL**, а у тебе зараз **{player['balance']} TL**.\n"
             f"Зароби гроші на риболовлі!",
             reply_markup=get_main_keyboard(),
             parse_mode="Markdown"
@@ -223,7 +215,7 @@ async def process_buy_card(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "my_collection")
 async def process_collection(callback: types.CallbackQuery):
-    player = get_player(callback.from_user.id)
+    player = get_player_data(callback.from_user.id)
     count = len(player["collection"])
     
     await callback.message.answer(

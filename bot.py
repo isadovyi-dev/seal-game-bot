@@ -22,39 +22,46 @@ def get_player(user_id):
         }
     return players[user_id]
 
-# --- 100% ТІЛЬКИ ТЮЛЕНІ (СТАБІЛЬНІ ПРЯМІ ПОСИЛАННЯ) ---
+# --- 100% ПЕРЕВІРЕНІ ТЮЛЕНІ ---
 SEAL_PHOTOS = [
-    "https://raw.githubusercontent.com/TelegramBots/book/master/src/concept/photo.jpg", # Запасне фото
-    "https://cdn.pixabay.com/photo/2016/12/13/22/39/seals-1905292_1280.jpg",
-    "https://cdn.pixabay.com/photo/2019/08/19/13/58/seal-4416521_1280.jpg",
-    "https://cdn.pixabay.com/photo/2017/08/06/12/06/seal-2591905_1280.jpg",
-    "https://cdn.pixabay.com/photo/2020/03/11/15/45/seal-4922485_1280.jpg"
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Common_seal_2007-08-12.jpg/800px-Common_seal_2007-08-12.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Harbor_seal_at_Kachemak_Bay.jpg/800px-Harbor_seal_at_Kachemak_Bay.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Harbor_Seal_%28Phoca_vitulina%29_-_San_Diego%2C_CA.jpg/800px-Harbor_Seal_%28Phoca_vitulina%29_-_San_Diego%2C_CA.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Phoca_vitulina_1.jpg/800px-Phoca_vitulina_1.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Harbor_seal_resting.jpg/800px-Harbor_seal_resting.jpg"
 ]
 
-TITLES_EPIC = [
-    "Повелитель Айсбергів", "Адмірал Глибин", "Примарний Тюлень", "Крижаний Воїн", 
-    "Сонний Тюлень", "Хранитель Океану", "Шпигун Холодного Моря", "Мастер Риболовлі",
-    "Король Ластів", "Великий Вусань", "Гроза Атлантики", "Морський Ніндзя"
+# --- КРУТІ УНІКАЛЬНІ НАЗВИ КАРТОК ---
+ADJECTIVES = [
+    "Арктичний", "Примарний", "Крижаний", "Штормовий", "Грозний", "Сонний", 
+    "Броньований", "Космічний", "Вогняний", "Забутий", "Епічний", "Нічний"
+]
+
+TITLES = [
+    "Берсерк", "Адмірал", "Шпигун", "Захисник", "Вусань", "Мисливець", 
+    "Володар", "Ніндзя", "Капітан", "Вартовий", "Мандрівник", "Титан"
 ]
 
 CARDS_DATABASE = {}
+used_names = set()
 
 for card_id in range(1, 101):
     if card_id <= 50:
         rarity, weight = "⚪ Звичайна (Common)", 50
-        prefix = "Обучений"
     elif card_id <= 80:
         rarity, weight = "🔵 Рідкісна (Rare)", 30
-        prefix = "Шляхетний"
     elif card_id <= 95:
         rarity, weight = "🟣 Епічна (Epic)", 15
-        prefix = "Легендарний"
     else:
         rarity, weight = "🟡 МІФІЧНА (Legendary)", 5
-        prefix = "Божественний"
 
-    title = random.choice(TITLES_EPIC)
-    card_name = f"{prefix} {title} #{card_id}"
+    # Генерація унікальної крутої назви
+    while True:
+        card_name = f"🦭 {random.choice(ADJECTIVES)} {random.choice(TITLES)} #{card_id}"
+        if card_name not in used_names:
+            used_names.add(card_name)
+            break
+
     photo_url = SEAL_PHOTOS[(card_id - 1) % len(SEAL_PHOTOS)]
 
     CARDS_DATABASE[card_id] = {
@@ -164,15 +171,12 @@ async def process_buy_card(callback: types.CallbackQuery):
         f"{bonus_text}"
     )
     
-    try:
-        await callback.message.answer_photo(
-            photo=chosen_card["image"],
-            caption=caption,
-            reply_markup=get_back_keyboard(),
-            parse_mode="Markdown"
-        )
-    except Exception:
-        await callback.message.answer(caption, reply_markup=get_back_keyboard(), parse_mode="Markdown")
+    await callback.message.answer_photo(
+        photo=chosen_card["image"],
+        caption=caption,
+        reply_markup=get_back_keyboard(),
+        parse_mode="Markdown"
+    )
 
     await callback.answer()
 

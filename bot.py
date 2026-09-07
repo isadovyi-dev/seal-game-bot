@@ -16,7 +16,7 @@ dp = Dispatcher()
 DB_FILE = "players_data.json"
 PROCESSING_USERS = set()
 
-# --- ЗБЕРЕЖЕННЯ ТА ЗАВАНТАЖЕННЯ БАЗИ ДАНИХ ---
+# --- БАЗА ДАНИХ ---
 def load_db():
     if os.path.exists(DB_FILE):
         try:
@@ -84,10 +84,16 @@ CARD_NAMES = [
     "🦭 Божественний Тюлень Океану", "🦭 Древній Хранитель Глибин", "🦭 Легендарний Повелитель Штормів", "🦭 Полярний Властелик Світу", "🦭 Нефритовий Божественний Вусань"
 ]
 
-SEAL_IMAGES = [
-    "https://images.unsplash.com/photo-1598439210625-5067c578f3f6?w=600",
-    "https://images.unsplash.com/photo-1551085254-e96b210db58a?w=600",
-    "https://images.unsplash.com/photo-1575550959106-5a7defe28b56?w=600"
+# Прямі перевірені джерела фотографій тюленів
+BASE_SEAL_URLS = [
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Harbor_Seal_Phoca_vitulina.jpg/800px-Harbor_Seal_Phoca_vitulina.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Seal_pup_nagashima.jpg/800px-Seal_pup_nagashima.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Phoca_vitulina_11.jpg/800px-Phoca_vitulina_11.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/Seal_in_Gouda.jpg/800px-Seal_in_Gouda.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/Common_seal_Phoca_vitulina.jpg/800px-Common_seal_Phoca_vitulina.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Harbor_Seal_%28Phoca_vitulina%29_in_San_Diego.jpg/800px-Harbor_Seal_%28Phoca_vitulina%29_in_San_Diego.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Phoca_vitulina_Helgoland.jpg/800px-Phoca_vitulina_Helgoland.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Robbe_Phoca_vitulina_01.jpg/800px-Robbe_Phoca_vitulina_01.jpg"
 ]
 
 CARDS_DATABASE = {}
@@ -106,7 +112,7 @@ for idx in range(1, 101):
         "name": f"{CARD_NAMES[idx - 1]} #{idx}",
         "rarity": rarity,
         "weight": weight,
-        "image": SEAL_IMAGES[(idx - 1) % len(SEAL_IMAGES)]
+        "image": BASE_SEAL_URLS[(idx - 1) % len(BASE_SEAL_URLS)]
     }
 
 def get_main_keyboard():
@@ -254,7 +260,7 @@ async def process_buy_card(callback: types.CallbackQuery):
                     reply_markup=get_back_keyboard(),
                     parse_mode="Markdown"
                 ),
-                timeout=3.0
+                timeout=3.5
             )
         except Exception:
             await callback.message.answer(
@@ -318,7 +324,7 @@ async def process_view_card(callback: types.CallbackQuery):
                     reply_markup=builder.as_markup(),
                     parse_mode="Markdown"
                 ),
-                timeout=3.0
+                timeout=3.5
             )
         except Exception:
             await callback.message.answer(

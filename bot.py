@@ -3,20 +3,28 @@ import json
 import random
 import asyncio
 from datetime import datetime
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiohttp import web
 
 TOKEN = "8072842801:AAHgOyzmksuZrYOGnoSSYmsgVEOKUxklMcA"
+ADMIN_PASSWORD = "2345"
 
 bot = Bot(token=TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(storage=MemoryStorage())
 
 DB_FILE = "players_data.json"
+PHOTOS_FILE = "seal_photos.json"
 PROCESSING_USERS = set()
+ADMINS_SET = set()
 
-# --- БАЗА ДАНИХ ---
+class AdminStates(StatesGroup):
+    waiting_for_password = State()
+
 def load_db():
     if os.path.exists(DB_FILE):
         try:
@@ -38,11 +46,24 @@ def save_db():
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data_to_save, f, ensure_ascii=False, indent=2)
 
+def load_photos():
+    if os.path.exists(PHOTOS_FILE):
+        try:
+            with open(PHOTOS_FILE, "r", encoding="utf-8") as f:
+                return {int(k): v for k, v in json.load(f).items()}
+        except Exception:
+            return {}
+    return {}
+
+def save_photos():
+    with open(PHOTOS_FILE, "w", encoding="utf-8") as f:
+        json.dump(SEAL_PHOTOS, f, ensure_ascii=False, indent=2)
+
 PLAYERS_DB = load_db()
+SEAL_PHOTOS = load_photos()
 
 def get_player_data(user_id: int):
     today_str = datetime.now().strftime("%Y-%m-%d")
-    
     if user_id not in PLAYERS_DB:
         PLAYERS_DB[user_id] = {
             "balance": 0,
@@ -51,14 +72,11 @@ def get_player_data(user_id: int):
             "last_fish_date": today_str
         }
         save_db()
-    
     player = PLAYERS_DB[user_id]
-    
     if player["last_fish_date"] != today_str:
         player["fish_attempts"] = 0
         player["last_fish_date"] = today_str
         save_db()
-        
     return player
 
 CARD_NAMES = [
@@ -84,18 +102,6 @@ CARD_NAMES = [
     "🦭 Божественний Тюлень Океану", "🦭 Древній Хранитель Глибин", "🦭 Легендарний Повелитель Штормів", "🦭 Полярний Властелик Світу", "🦭 Нефритовий Божественний Вусань"
 ]
 
-# Прямі перевірені джерела фотографій тюленів
-BASE_SEAL_URLS = [
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Harbor_Seal_Phoca_vitulina.jpg/800px-Harbor_Seal_Phoca_vitulina.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Seal_pup_nagashima.jpg/800px-Seal_pup_nagashima.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Phoca_vitulina_11.jpg/800px-Phoca_vitulina_11.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/Seal_in_Gouda.jpg/800px-Seal_in_Gouda.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/Common_seal_Phoca_vitulina.jpg/800px-Common_seal_Phoca_vitulina.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Harbor_Seal_%28Phoca_vitulina%29_in_San_Diego.jpg/800px-Harbor_Seal_%28Phoca_vitulina%29_in_San_Diego.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Phoca_vitulina_Helgoland.jpg/800px-Phoca_vitulina_Helgoland.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Robbe_Phoca_vitulina_01.jpg/800px-Robbe_Phoca_vitulina_01.jpg"
-]
-
 CARDS_DATABASE = {}
 for idx in range(1, 101):
     if idx <= 50:
@@ -111,8 +117,7 @@ for idx in range(1, 101):
         "id": idx,
         "name": f"{CARD_NAMES[idx - 1]} #{idx}",
         "rarity": rarity,
-        "weight": weight,
-        "image": BASE_SEAL_URLS[(idx - 1) % len(BASE_SEAL_URLS)]
+        "weight": weight
     }
 
 def get_main_keyboard():
@@ -132,8 +137,60 @@ def get_back_keyboard():
     builder.adjust(2)
     return builder.as_markup()
 
+# --- АДМІНКА ---
+@dp.message(Command("admin"))
+async def cmd_admin(message: types.Message, state: FSMContext):
+    if message.from_user.id in ADMINS_SET:
+        await message.answer(
+            f"👑 **Ви вже в режимі адміна!**\n\n"
+            f"Завантажено фотографій: **{len(SEAL_PHOTOS)} / 100**\n\n"
+            f"Просто надсилайте фотографії тюленів сюди у чат по черзі або альбомом.",
+            parse_mode="Markdown"
+        )
+    else:
+        await state.set_state(AdminStates.waiting_for_password)
+        await message.answer("🔒 **Введіть пароль адміна:**", parse_mode="Markdown")
+
+@dp.message(AdminStates.waiting_for_password)
+async def process_password(message: types.Message, state: FSMContext):
+    if message.text and message.text.strip() == ADMIN_PASSWORD:
+        ADMINS_SET.add(message.from_user.id)
+        await state.clear()
+        await message.answer(
+            "✅ **Пароль вірний! Режим адміна активовано.**\n\n"
+            f"📊 Наразі завантажено фотографій: **{len(SEAL_PHOTOS)} / 100**\n\n"
+            "📸 **Що робити далі:**\n"
+            "Просто надсилай фотографії тюленів у чат! Бот сам прив'яже їх по черзі до кожної картки від #1 до #100.",
+            parse_mode="Markdown"
+        )
+    else:
+        await message.answer("❌ **Невірний пароль! Спробуйте ще раз або введіть /start:**", parse_mode="Markdown")
+
+@dp.message(F.photo)
+async def handle_photo_upload(message: types.Message):
+    if message.from_user.id not in ADMINS_SET:
+        return
+
+    next_id = len(SEAL_PHOTOS) + 1
+    if next_id > 100:
+        await message.answer("✅ **Усі 100 фотографій вже успішно завантажені!**")
+        return
+
+    file_id = message.photo[-1].file_id
+    SEAL_PHOTOS[next_id] = file_id
+    save_photos()
+
+    card_name = CARDS_DATABASE[next_id]["name"]
+    await message.answer(
+        f"📸 **Завантажено photo #{next_id}!**\n"
+        f"Прив'язано до: **{card_name}**\n"
+        f"Залишилося: **{100 - next_id}** шт.",
+        parse_mode="Markdown"
+    )
+
 @dp.message(Command("start"))
-async def cmd_start(message: types.Message):
+async def cmd_start(message: types.Message, state: FSMContext):
+    await state.clear()
     get_player_data(message.from_user.id)
     await message.answer(
         "🦭 **Вітаю у Seal Game!**\n\n"
@@ -159,7 +216,6 @@ async def process_fish(callback: types.CallbackQuery):
 
     try:
         player = get_player_data(user_id)
-        
         if player["fish_attempts"] >= 2:
             await callback.message.answer(
                 "⏳ **Ліміт риболовлі вичерпано!**\n\n"
@@ -197,7 +253,8 @@ async def process_profile(callback: types.CallbackQuery):
         f"👤 **Твій профіль:**\n\n"
         f"💰 Баланс: **{player['balance']} TL**\n"
         f"🎣 Спроб риболовлі сьогодні: **{player['fish_attempts']} / 2**\n"
-        f"📦 Зібрано карток: **{len(player['collection'])} / 100**"
+        f"📦 Зібрано карток: **{len(player['collection'])} / 100**\n"
+        f"🖼 Завантажено фотографій в систему: **{len(SEAL_PHOTOS)} / 100**"
     )
     await callback.message.answer(text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
     await callback.answer()
@@ -205,7 +262,6 @@ async def process_profile(callback: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data == "buy_card")
 async def process_buy_card(callback: types.CallbackQuery):
     user_id = callback.from_user.id
-    
     if user_id in PROCESSING_USERS:
         await callback.answer("⏳ Обробка...", show_alert=False)
         return
@@ -213,7 +269,6 @@ async def process_buy_card(callback: types.CallbackQuery):
 
     try:
         player = get_player_data(user_id)
-        
         if player["balance"] < 10:
             await callback.message.answer(
                 f"❌ **Нестача коштів!**\n\n"
@@ -226,7 +281,6 @@ async def process_buy_card(callback: types.CallbackQuery):
             return
 
         player["balance"] -= 10
-        
         cards_list = list(CARDS_DATABASE.values())
         weights = [c["weight"] for c in cards_list]
         chosen_card = random.choices(cards_list, weights=weights, k=1)[0]
@@ -242,7 +296,6 @@ async def process_buy_card(callback: types.CallbackQuery):
         save_db()
 
         status_text = "✨ **НОВА УНІКАЛЬНА КАРТКА!**" if is_new else "🔄 Така картка вже є в колекції."
-        
         caption = (
             f"{status_text}\n\n"
             f"🃏 **Картка:** {chosen_card['name']}\n"
@@ -251,18 +304,16 @@ async def process_buy_card(callback: types.CallbackQuery):
             f"📦 **Колекція:** {len(player['collection'])}/100"
             f"{bonus_text}"
         )
-        
-        try:
-            await asyncio.wait_for(
-                callback.message.answer_photo(
-                    photo=chosen_card["image"],
-                    caption=caption,
-                    reply_markup=get_back_keyboard(),
-                    parse_mode="Markdown"
-                ),
-                timeout=3.5
+
+        card_photo = SEAL_PHOTOS.get(chosen_card["id"])
+        if card_photo:
+            await callback.message.answer_photo(
+                photo=card_photo,
+                caption=caption,
+                reply_markup=get_back_keyboard(),
+                parse_mode="Markdown"
             )
-        except Exception:
+        else:
             await callback.message.answer(
                 caption,
                 reply_markup=get_back_keyboard(),
@@ -290,14 +341,12 @@ async def process_collection(callback: types.CallbackQuery):
 
     text = f"📦 **Твоя колекція ({len(collected_ids)}/100):**\n\nОбери картку для перегляду:\n"
     builder = InlineKeyboardBuilder()
-    
     for card_id in collected_ids:
         card = CARDS_DATABASE[card_id]
         builder.button(text=f"{card['name']} [{card['rarity'].split()[0]}]", callback_data=f"view_card_{card_id}")
     
     builder.button(text="🏠 Головне меню", callback_data="main_menu")
     builder.adjust(1)
-    
     await callback.message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
     await callback.answer()
 
@@ -305,7 +354,6 @@ async def process_collection(callback: types.CallbackQuery):
 async def process_view_card(callback: types.CallbackQuery):
     card_id = int(callback.data.split("_")[2])
     card = CARDS_DATABASE.get(card_id)
-    
     if card:
         caption = (
             f"🃏 Картка:\n"
@@ -316,17 +364,15 @@ async def process_view_card(callback: types.CallbackQuery):
         builder.button(text="🏠 Головне меню", callback_data="main_menu")
         builder.adjust(1)
 
-        try:
-            await asyncio.wait_for(
-                callback.message.answer_photo(
-                    photo=card["image"],
-                    caption=caption,
-                    reply_markup=builder.as_markup(),
-                    parse_mode="Markdown"
-                ),
-                timeout=3.5
+        card_photo = SEAL_PHOTOS.get(card_id)
+        if card_photo:
+            await callback.message.answer_photo(
+                photo=card_photo,
+                caption=caption,
+                reply_markup=builder.as_markup(),
+                parse_mode="Markdown"
             )
-        except Exception:
+        else:
             await callback.message.answer(
                 caption,
                 reply_markup=builder.as_markup(),

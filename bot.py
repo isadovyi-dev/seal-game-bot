@@ -32,17 +32,17 @@ def load_db():
                 data = json.load(f)
                 for user_id, p in data.items():
                     p["collection"] = set(p["collection"])
-                return {int(k): v for k, v in data.items()}
+                return data
         except Exception:
             return {}
     return {}
 
 def save_db():
     data_to_save = {}
-    for user_id, p in PLAYERS_DB.items():
+    for key, p in PLAYERS_DB.items():
         p_copy = p.copy()
         p_copy["collection"] = list(p["collection"])
-        data_to_save[str(user_id)] = p_copy
+        data_to_save[str(key)] = p_copy
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data_to_save, f, ensure_ascii=False, indent=2)
 
@@ -62,22 +62,49 @@ def save_photos():
 PLAYERS_DB = load_db()
 SEAL_PHOTOS = load_photos()
 
-def get_player_data(user_id: int):
+def get_player_data(user_id: int, username: str = None):
     today_str = datetime.now().strftime("%Y-%m-%d")
-    if user_id not in PLAYERS_DB:
-        PLAYERS_DB[user_id] = {
+    key = str(user_id)
+    
+    if key not in PLAYERS_DB:
+        PLAYERS_DB[key] = {
+            "username": username.lower() if username else "",
             "balance": 0,
             "collection": set(),
             "fish_attempts": 0,
             "last_fish_date": today_str
         }
         save_db()
-    player = PLAYERS_DB[user_id]
+    
+    player = PLAYERS_DB[key]
+    if username and player.get("username") != username.lower():
+        player["username"] = username.lower()
+        save_db()
+
     if player["last_fish_date"] != today_str:
         player["fish_attempts"] = 0
         player["last_fish_date"] = today_str
         save_db()
+        
     return player
+
+def add_tl_by_username(username: str, amount: int):
+    username_clean = username.lower().replace("@", "")
+    for key, player in PLAYERS_DB.items():
+        if player.get("username") == username_clean:
+            player["balance"] += amount
+            save_db()
+            return True, player["balance"]
+    
+    PLAYERS_DB[f"user_{username_clean}"] = {
+        "username": username_clean,
+        "balance": amount,
+        "collection": set(),
+        "fish_attempts": 0,
+        "last_fish_date": datetime.now().strftime("%Y-%m-%d")
+    }
+    save_db()
+    return True, amount
 
 CARD_NAMES = [
     "🦭 Сонний Тюленчик", "🦭 Малий Вусань", "🦭 Пухлик", "🦭 Морська Коржика", "🦭 Рибоед",
@@ -137,14 +164,13 @@ def get_back_keyboard():
     builder.adjust(2)
     return builder.as_markup()
 
-# --- АДМІНКА ---
 @dp.message(Command("admin"))
 async def cmd_admin(message: types.Message, state: FSMContext):
     if message.from_user.id in ADMINS_SET:
         await message.answer(
-            f"👑 **Ви вже в режимі адміна!**\n\n"
+            f"👑 **Ви в режимі адміна!**\n\n"
             f"Завантажено фотографій: **{len(SEAL_PHOTOS)} / 100**\n\n"
-            f"Просто надсилайте фотографії тюленів сюди у чат по черзі або альбомом.",
+            f"Надсилайте фотографії тюленів сюди в чат.",
             parse_mode="Markdown"
         )
     else:
@@ -158,13 +184,12 @@ async def process_password(message: types.Message, state: FSMContext):
         await state.clear()
         await message.answer(
             "✅ **Пароль вірний! Режим адміна активовано.**\n\n"
-            f"📊 Наразі завантажено фотографій: **{len(SEAL_PHOTOS)} / 100**\n\n"
-            "📸 **Що робити далі:**\n"
-            "Просто надсилай фотографії тюленів у чат! Бот сам прив'яже їх по черзі до кожної картки від #1 до #100.",
+            f"📊 Завантажено фотографій: **{len(SEAL_PHOTOS)} / 100**\n\n"
+            "📸 Просто надсилай фотографії тюленів у чат!",
             parse_mode="Markdown"
         )
     else:
-        await message.answer("❌ **Невірний пароль! Спробуйте ще раз або введіть /start:**", parse_mode="Markdown")
+        await message.answer("❌ **Невірний пароль! Спробуйте ще раз:**", parse_mode="Markdown")
 
 @dp.message(F.photo)
 async def handle_photo_upload(message: types.Message):
@@ -173,7 +198,7 @@ async def handle_photo_upload(message: types.Message):
 
     next_id = len(SEAL_PHOTOS) + 1
     if next_id > 100:
-        await message.answer("✅ **Усі 100 фотографій вже успішно завантажені!**")
+        await message.answer("✅ **Усі 100 фотографій завантажені!**")
         return
 
     file_id = message.photo[-1].file_id
@@ -191,12 +216,13 @@ async def handle_photo_upload(message: types.Message):
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
-    get_player_data(message.from_user.id)
+    get_player_data(message.from_user.id, message.from_user.username)
     await message.answer(
         "🦭 **Вітаю у Seal Game!**\n\n"
         "1. Лови рибу (максимум **2 рази на день**).\n"
-        "2. Витрачай TL на купівлю **100 унікальних карток** (1 картка = 10 TL).\n"
-        "3. Збирай колекцію!",
+        "2. Грай у браузерну гру та заробляй монети TL!\n"
+        "3. Витрачай TL на купівлю **100 унікальних карток** (1 картка = 10 TL).\n"
+        "4. Збирай колекцію!",
         reply_markup=get_main_keyboard(),
         parse_mode="Markdown"
     )
@@ -215,11 +241,11 @@ async def process_fish(callback: types.CallbackQuery):
     PROCESSING_USERS.add(user_id)
 
     try:
-        player = get_player_data(user_id)
+        player = get_player_data(user_id, callback.from_user.username)
         if player["fish_attempts"] >= 2:
             await callback.message.answer(
                 "⏳ **Ліміт риболовлі вичерпано!**\n\n"
-                "Ти вже зловив рибу 2 рази сьогодні (2/2). Приходь завтра!",
+                "Ти вже зловив рибу 2 рази сьогодні (2/2). Приходь завтра або грай у Web-гру!",
                 reply_markup=get_main_keyboard(),
                 parse_mode="Markdown"
             )
@@ -248,13 +274,13 @@ async def process_fish(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "profile")
 async def process_profile(callback: types.CallbackQuery):
-    player = get_player_data(callback.from_user.id)
+    player = get_player_data(callback.from_user.id, callback.from_user.username)
     text = (
         f"👤 **Твій профіль:**\n\n"
+        f"🏷 Username: `@{(player.get('username') or 'Не вказано')}`\n"
         f"💰 Баланс: **{player['balance']} TL**\n"
         f"🎣 Спроб риболовлі сьогодні: **{player['fish_attempts']} / 2**\n"
-        f"📦 Зібрано карток: **{len(player['collection'])} / 100**\n"
-        f"🖼 Завантажено фотографій в систему: **{len(SEAL_PHOTOS)} / 100**"
+        f"📦 Зібрано карток: **{len(player['collection'])} / 100**"
     )
     await callback.message.answer(text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
     await callback.answer()
@@ -268,12 +294,12 @@ async def process_buy_card(callback: types.CallbackQuery):
     PROCESSING_USERS.add(user_id)
 
     try:
-        player = get_player_data(user_id)
+        player = get_player_data(user_id, callback.from_user.username)
         if player["balance"] < 10:
             await callback.message.answer(
                 f"❌ **Нестача коштів!**\n\n"
                 f"Картка коштує **10 TL**, а у тебе зараз **{player['balance']} TL**.\n"
-                f"Зароби гроші на риболовлі!",
+                f"Зароби гроші на риболовлі або у Web-грі!",
                 reply_markup=get_main_keyboard(),
                 parse_mode="Markdown"
             )
@@ -326,7 +352,7 @@ async def process_buy_card(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "my_collection")
 async def process_collection(callback: types.CallbackQuery):
-    player = get_player_data(callback.from_user.id)
+    player = get_player_data(callback.from_user.id, callback.from_user.username)
     collected_ids = sorted(list(player["collection"]))
     
     if not collected_ids:
@@ -383,9 +409,34 @@ async def process_view_card(callback: types.CallbackQuery):
 async def handle_ping(request):
     return web.Response(text="Bot is alive!")
 
+async def handle_add_tl(request):
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+    }
+
+    if request.method == "OPTIONS":
+        return web.Response(status=200, headers=headers)
+
+    try:
+        data = await request.json()
+        username = data.get("username")
+        amount = int(data.get("amount", 0))
+
+        if username and amount > 0:
+            add_tl_by_username(username, amount)
+            return web.json_response({"status": "ok"}, headers=headers)
+        return web.json_response({"status": "error", "message": "Invalid input"}, status=400, headers=headers)
+    except Exception as e:
+        return web.json_response({"status": "error", "message": str(e)}, status=500, headers=headers)
+
 async def start_web_server():
     app = web.Application()
     app.router.add_get('/', handle_ping)
+    app.router.add_post('/api/add-tl', handle_add_tl)
+    app.router.add_options('/api/add-tl', handle_add_tl)
+    
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get("PORT", 8080))

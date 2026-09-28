@@ -32,17 +32,17 @@ def load_db():
                 data = json.load(f)
                 for user_id, p in data.items():
                     p["collection"] = set(p["collection"])
-                return data
+                return {int(k): v for k, v in data.items()}
         except Exception:
             return {}
     return {}
 
 def save_db():
     data_to_save = {}
-    for key, p in PLAYERS_DB.items():
+    for user_id, p in PLAYERS_DB.items():
         p_copy = p.copy()
         p_copy["collection"] = list(p["collection"])
-        data_to_save[str(key)] = p_copy
+        data_to_save[str(user_id)] = p_copy
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data_to_save, f, ensure_ascii=False, indent=2)
 
@@ -64,47 +64,30 @@ SEAL_PHOTOS = load_photos()
 
 def get_player_data(user_id: int, username: str = None):
     today_str = datetime.now().strftime("%Y-%m-%d")
-    key = str(user_id)
-    
-    if key not in PLAYERS_DB:
-        PLAYERS_DB[key] = {
-            "username": username.lower() if username else "",
+    if user_id not in PLAYERS_DB:
+        PLAYERS_DB[user_id] = {
             "balance": 0,
             "collection": set(),
             "fish_attempts": 0,
-            "last_fish_date": today_str
+            "last_fish_date": today_str,
+            "username": username.lower() if username else ""
         }
         save_db()
-    
-    player = PLAYERS_DB[key]
-    if username and player.get("username") != username.lower():
+    player = PLAYERS_DB[user_id]
+    if username:
         player["username"] = username.lower()
-        save_db()
-
     if player["last_fish_date"] != today_str:
         player["fish_attempts"] = 0
         player["last_fish_date"] = today_str
         save_db()
-        
     return player
 
-def add_tl_by_username(username: str, amount: int):
-    username_clean = username.lower().replace("@", "")
-    for key, player in PLAYERS_DB.items():
-        if player.get("username") == username_clean:
-            player["balance"] += amount
-            save_db()
-            return True, player["balance"]
-    
-    PLAYERS_DB[f"user_{username_clean}"] = {
-        "username": username_clean,
-        "balance": amount,
-        "collection": set(),
-        "fish_attempts": 0,
-        "last_fish_date": datetime.now().strftime("%Y-%m-%d")
-    }
-    save_db()
-    return True, amount
+def find_user_by_username(username: str):
+    clean_name = username.replace("@", "").strip().lower()
+    for uid, data in PLAYERS_DB.items():
+        if data.get("username", "").lower() == clean_name:
+            return uid
+    return None
 
 CARD_NAMES = [
     "🦭 Сонний Тюленчик", "🦭 Малий Вусань", "🦭 Пухлик", "🦭 Морська Коржика", "🦭 Рибоед",
@@ -164,13 +147,26 @@ def get_back_keyboard():
     builder.adjust(2)
     return builder.as_markup()
 
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message, state: FSMContext):
+    await state.clear()
+    username = message.from_user.username or ""
+    get_player_data(message.from_user.id, username)
+    await message.answer(
+        "🦭 **Вітаю у Seal Game!**\n\n"
+        "1. Лови рибу (максимум **2 рази на день**).\n"
+        "2. Витрачай TL на купівлю **100 унікальних карток** (1 картка = 10 TL).\n"
+        "3. Збирай колекцію!",
+        reply_markup=get_main_keyboard(),
+        parse_mode="Markdown"
+    )
+
 @dp.message(Command("admin"))
 async def cmd_admin(message: types.Message, state: FSMContext):
     if message.from_user.id in ADMINS_SET:
         await message.answer(
             f"👑 **Ви в режимі адміна!**\n\n"
-            f"Завантажено фотографій: **{len(SEAL_PHOTOS)} / 100**\n\n"
-            f"Надсилайте фотографії тюленів сюди в чат.",
+            f"Завантажено фотографій: **{len(SEAL_PHOTOS)} / 100**",
             parse_mode="Markdown"
         )
     else:
@@ -184,12 +180,11 @@ async def process_password(message: types.Message, state: FSMContext):
         await state.clear()
         await message.answer(
             "✅ **Пароль вірний! Режим адміна активовано.**\n\n"
-            f"📊 Завантажено фотографій: **{len(SEAL_PHOTOS)} / 100**\n\n"
-            "📸 Просто надсилай фотографії тюленів у чат!",
+            f"📊 Наразі завантажено фотографій: **{len(SEAL_PHOTOS)} / 100**",
             parse_mode="Markdown"
         )
     else:
-        await message.answer("❌ **Невірний пароль! Спробуйте ще раз:**", parse_mode="Markdown")
+        await message.answer("❌ **Невірний пароль!**", parse_mode="Markdown")
 
 @dp.message(F.photo)
 async def handle_photo_upload(message: types.Message):
@@ -198,32 +193,16 @@ async def handle_photo_upload(message: types.Message):
 
     next_id = len(SEAL_PHOTOS) + 1
     if next_id > 100:
-        await message.answer("✅ **Усі 100 фотографій завантажені!**")
+        await message.answer("✅ Усі 100 фотографій вже завантажені!")
         return
 
     file_id = message.photo[-1].file_id
     SEAL_PHOTOS[next_id] = file_id
     save_photos()
 
-    card_name = CARDS_DATABASE[next_id]["name"]
     await message.answer(
         f"📸 **Завантажено photo #{next_id}!**\n"
-        f"Прив'язано до: **{card_name}**\n"
         f"Залишилося: **{100 - next_id}** шт.",
-        parse_mode="Markdown"
-    )
-
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message, state: FSMContext):
-    await state.clear()
-    get_player_data(message.from_user.id, message.from_user.username)
-    await message.answer(
-        "🦭 **Вітаю у Seal Game!**\n\n"
-        "1. Лови рибу (максимум **2 рази на день**).\n"
-        "2. Грай у браузерну гру та заробляй монети TL!\n"
-        "3. Витрачай TL на купівлю **100 унікальних карток** (1 картка = 10 TL).\n"
-        "4. Збирай колекцію!",
-        reply_markup=get_main_keyboard(),
         parse_mode="Markdown"
     )
 
@@ -244,8 +223,7 @@ async def process_fish(callback: types.CallbackQuery):
         player = get_player_data(user_id, callback.from_user.username)
         if player["fish_attempts"] >= 2:
             await callback.message.answer(
-                "⏳ **Ліміт риболовлі вичерпано!**\n\n"
-                "Ти вже зловив рибу 2 рази сьогодні (2/2). Приходь завтра або грай у Web-гру!",
+                "⏳ **Ліміт риболовлі вичерпано!** (2/2 на день)",
                 reply_markup=get_main_keyboard(),
                 parse_mode="Markdown"
             )
@@ -257,12 +235,8 @@ async def process_fish(callback: types.CallbackQuery):
         player["balance"] += earned_tl
         save_db()
         
-        fish_types = ["🐟 Маленьку рибку", "🐠 Тропічну рибку", "🐟 Велику тріску", "🦀 Краба", "🦐 Креветку"]
-        caught = random.choice(fish_types)
-        
         text = (
-            f"🎣 **Вдала риболовля!** ({player['fish_attempts']}/2 сьогодні)\n\n"
-            f"Ти спіймав: **{caught}**\n"
+            f"🎣 **Вдала риболовля!** ({player['fish_attempts']}/2)\n\n"
             f"Зароблено: **+{earned_tl} TL** 💰\n"
             f"Твій новий баланс: **{player['balance']} TL**"
         )
@@ -277,7 +251,6 @@ async def process_profile(callback: types.CallbackQuery):
     player = get_player_data(callback.from_user.id, callback.from_user.username)
     text = (
         f"👤 **Твій профіль:**\n\n"
-        f"🏷 Username: `@{(player.get('username') or 'Не вказано')}`\n"
         f"💰 Баланс: **{player['balance']} TL**\n"
         f"🎣 Спроб риболовлі сьогодні: **{player['fish_attempts']} / 2**\n"
         f"📦 Зібрано карток: **{len(player['collection'])} / 100**"
@@ -297,9 +270,7 @@ async def process_buy_card(callback: types.CallbackQuery):
         player = get_player_data(user_id, callback.from_user.username)
         if player["balance"] < 10:
             await callback.message.answer(
-                f"❌ **Нестача коштів!**\n\n"
-                f"Картка коштує **10 TL**, а у тебе зараз **{player['balance']} TL**.\n"
-                f"Зароби гроші на риболовлі або у Web-грі!",
+                f"❌ **Нестача коштів!** (Картка коштує 10 TL, у тебе {player['balance']} TL)",
                 reply_markup=get_main_keyboard(),
                 parse_mode="Markdown"
             )
@@ -313,38 +284,19 @@ async def process_buy_card(callback: types.CallbackQuery):
         
         is_new = chosen_card["id"] not in player["collection"]
         player["collection"].add(chosen_card["id"])
-        
-        bonus_text = ""
-        if len(player["collection"]) == 100 and is_new:
-            player["balance"] += 1000
-            bonus_text = "\n\n🎉 **ВІТАЄМО! Ти зібрав усі 100 карток і отримав бонус +1000 TL!** 🏆"
-
         save_db()
 
-        status_text = "✨ **НОВА УНІКАЛЬНА КАРТКА!**" if is_new else "🔄 Така картка вже є в колекції."
         caption = (
-            f"{status_text}\n\n"
             f"🃏 **Картка:** {chosen_card['name']}\n"
             f"✨ **Рідкісність:** {chosen_card['rarity']}\n"
-            f"💰 **Залишок балансу:** {player['balance']} TL\n"
-            f"📦 **Колекція:** {len(player['collection'])}/100"
-            f"{bonus_text}"
+            f"💰 **Залишок балансу:** {player['balance']} TL"
         )
 
         card_photo = SEAL_PHOTOS.get(chosen_card["id"])
         if card_photo:
-            await callback.message.answer_photo(
-                photo=card_photo,
-                caption=caption,
-                reply_markup=get_back_keyboard(),
-                parse_mode="Markdown"
-            )
+            await callback.message.answer_photo(photo=card_photo, caption=caption, reply_markup=get_back_keyboard(), parse_mode="Markdown")
         else:
-            await callback.message.answer(
-                caption,
-                reply_markup=get_back_keyboard(),
-                parse_mode="Markdown"
-            )
+            await callback.message.answer(caption, reply_markup=get_back_keyboard(), parse_mode="Markdown")
 
         await callback.answer()
     finally:
@@ -356,87 +308,56 @@ async def process_collection(callback: types.CallbackQuery):
     collected_ids = sorted(list(player["collection"]))
     
     if not collected_ids:
-        text = "📦 **Твоя колекція порожня!**\n\nКупи свою першу картку в магазині за 10 TL."
+        text = "📦 **Твоя колекція порожня!**"
         builder = InlineKeyboardBuilder()
-        builder.button(text="🃏 Купити картку (10 TL)", callback_data="buy_card")
         builder.button(text="🏠 Головне меню", callback_data="main_menu")
-        builder.adjust(1)
         await callback.message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
         await callback.answer()
         return
 
-    text = f"📦 **Твоя колекція ({len(collected_ids)}/100):**\n\nОбери картку для перегляду:\n"
+    text = f"📦 **Твоя колекція ({len(collected_ids)}/100):**\n"
     builder = InlineKeyboardBuilder()
     for card_id in collected_ids:
         card = CARDS_DATABASE[card_id]
-        builder.button(text=f"{card['name']} [{card['rarity'].split()[0]}]", callback_data=f"view_card_{card_id}")
-    
+        builder.button(text=f"{card['name']}", callback_data=f"view_card_{card_id}")
     builder.button(text="🏠 Головне меню", callback_data="main_menu")
     builder.adjust(1)
     await callback.message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
     await callback.answer()
 
-@dp.callback_query(lambda c: c.data.startswith("view_card_"))
-async def process_view_card(callback: types.CallbackQuery):
-    card_id = int(callback.data.split("_")[2])
-    card = CARDS_DATABASE.get(card_id)
-    if card:
-        caption = (
-            f"🃏 Картка:\n"
-            f"✨ Рідкісність:"
-        )
-        builder = InlineKeyboardBuilder()
-        builder.button(text="📦 Назад до колекції", callback_data="my_collection")
-        builder.button(text="🏠 Головне меню", callback_data="main_menu")
-        builder.adjust(1)
-
-        card_photo = SEAL_PHOTOS.get(card_id)
-        if card_photo:
-            await callback.message.answer_photo(
-                photo=card_photo,
-                caption=caption,
-                reply_markup=builder.as_markup(),
-                parse_mode="Markdown"
-            )
-        else:
-            await callback.message.answer(
-                caption,
-                reply_markup=builder.as_markup(),
-                parse_mode="Markdown"
-            )
-    await callback.answer()
-
+# --- ВЕБ-ІНТЕРФЕЙС ТА API ДЛЯ ГРИ ---
 async def handle_ping(request):
-    return web.Response(text="Bot is alive!")
+    return web.Response(text="Bot and Web Server are running!")
 
 async def handle_add_tl(request):
-    headers = {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type"
-    }
-
-    if request.method == "OPTIONS":
-        return web.Response(status=200, headers=headers)
-
     try:
         data = await request.json()
-        username = data.get("username")
+        username = data.get("username", "").strip()
         amount = int(data.get("amount", 0))
 
-        if username and amount > 0:
-            add_tl_by_username(username, amount)
-            return web.json_response({"status": "ok"}, headers=headers)
-        return web.json_response({"status": "error", "message": "Invalid input"}, status=400, headers=headers)
+        if not username or amount <= 0:
+            return web.json_response({"status": "error", "message": "Invalid input"}, status=400)
+
+        user_id = find_user_by_username(username)
+        if not user_id:
+            return web.json_response({"status": "error", "message": "User not found in bot. Press /start in bot first!"}, status=404)
+
+        player = PLAYERS_DB[user_id]
+        player["balance"] += amount
+        save_db()
+
+        return web.json_response({
+            "status": "ok",
+            "new_balance": player["balance"],
+            "added": amount
+        })
     except Exception as e:
-        return web.json_response({"status": "error", "message": str(e)}, status=500, headers=headers)
+        return web.json_response({"status": "error", "message": str(e)}, status=500)
 
 async def start_web_server():
     app = web.Application()
     app.router.add_get('/', handle_ping)
     app.router.add_post('/api/add-tl', handle_add_tl)
-    app.router.add_options('/api/add-tl', handle_add_tl)
-    
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get("PORT", 8080))

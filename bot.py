@@ -11,8 +11,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiohttp import web
 
-TOKEN = "8072842801:AAHgOyzmksuZrYOGnoSSYmsgVEOKUxklMcA"
-ADMIN_PASSWORD = "2345"
+TOKEN = os.environ["BOT_TOKEN"]
+ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -22,8 +22,10 @@ PHOTOS_FILE = "seal_photos.json"
 PROCESSING_USERS = set()
 ADMINS_SET = set()
 
+
 class AdminStates(StatesGroup):
     waiting_for_password = State()
+
 
 def load_db():
     if os.path.exists(DB_FILE):
@@ -37,6 +39,7 @@ def load_db():
             return {}
     return {}
 
+
 def save_db():
     data_to_save = {}
     for user_id, p in PLAYERS_DB.items():
@@ -45,6 +48,7 @@ def save_db():
         data_to_save[str(user_id)] = p_copy
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data_to_save, f, ensure_ascii=False, indent=2)
+
 
 def load_photos():
     if os.path.exists(PHOTOS_FILE):
@@ -55,12 +59,15 @@ def load_photos():
             return {}
     return {}
 
+
 def save_photos():
     with open(PHOTOS_FILE, "w", encoding="utf-8") as f:
         json.dump(SEAL_PHOTOS, f, ensure_ascii=False, indent=2)
 
+
 PLAYERS_DB = load_db()
 SEAL_PHOTOS = load_photos()
+
 
 def get_player_data(user_id: int, username: str = None):
     today_str = datetime.now().strftime("%Y-%m-%d")
@@ -82,12 +89,14 @@ def get_player_data(user_id: int, username: str = None):
         save_db()
     return player
 
+
 def find_user_by_username(username: str):
     clean_name = username.replace("@", "").strip().lower()
     for uid, data in PLAYERS_DB.items():
         if data.get("username", "").lower() == clean_name:
             return uid
     return None
+
 
 CARD_NAMES = [
     "🦭 Сонний Тюленчик", "🦭 Малий Вусань", "🦭 Пухлик", "🦭 Морська Коржика", "🦭 Рибоед",
@@ -122,13 +131,13 @@ for idx in range(1, 101):
         rarity, weight = "🟣 Епічна", 15
     else:
         rarity, weight = "🟡 МІФІЧНА", 5
-
     CARDS_DATABASE[idx] = {
         "id": idx,
         "name": f"{CARD_NAMES[idx - 1]} #{idx}",
         "rarity": rarity,
         "weight": weight
     }
+
 
 def get_main_keyboard():
     builder = InlineKeyboardBuilder()
@@ -139,6 +148,7 @@ def get_main_keyboard():
     builder.adjust(1)
     return builder.as_markup()
 
+
 def get_back_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="🎣 Ловити ще", callback_data="fish")
@@ -146,6 +156,7 @@ def get_back_keyboard():
     builder.button(text="🏠 Головне меню", callback_data="main_menu")
     builder.adjust(2)
     return builder.as_markup()
+
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
@@ -161,6 +172,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
         parse_mode="Markdown"
     )
 
+
 @dp.message(Command("admin"))
 async def cmd_admin(message: types.Message, state: FSMContext):
     if message.from_user.id in ADMINS_SET:
@@ -172,6 +184,7 @@ async def cmd_admin(message: types.Message, state: FSMContext):
     else:
         await state.set_state(AdminStates.waiting_for_password)
         await message.answer("🔒 **Введіть пароль адміна:**", parse_mode="Markdown")
+
 
 @dp.message(AdminStates.waiting_for_password)
 async def process_password(message: types.Message, state: FSMContext):
@@ -186,30 +199,30 @@ async def process_password(message: types.Message, state: FSMContext):
     else:
         await message.answer("❌ **Невірний пароль!**", parse_mode="Markdown")
 
+
 @dp.message(F.photo)
 async def handle_photo_upload(message: types.Message):
     if message.from_user.id not in ADMINS_SET:
         return
-
     next_id = len(SEAL_PHOTOS) + 1
     if next_id > 100:
         await message.answer("✅ Усі 100 фотографій вже завантажені!")
         return
-
     file_id = message.photo[-1].file_id
     SEAL_PHOTOS[next_id] = file_id
     save_photos()
-
     await message.answer(
         f"📸 **Завантажено photo #{next_id}!**\n"
         f"Залишилося: **{100 - next_id}** шт.",
         parse_mode="Markdown"
     )
 
+
 @dp.callback_query(lambda c: c.data == "main_menu")
 async def process_main_menu(callback: types.CallbackQuery):
     await callback.message.answer("🦭 **Головне меню**", reply_markup=get_main_keyboard(), parse_mode="Markdown")
     await callback.answer()
+
 
 @dp.callback_query(lambda c: c.data == "fish")
 async def process_fish(callback: types.CallbackQuery):
@@ -218,7 +231,6 @@ async def process_fish(callback: types.CallbackQuery):
         await callback.answer("⏳ Зачекай...", show_alert=False)
         return
     PROCESSING_USERS.add(user_id)
-
     try:
         player = get_player_data(user_id, callback.from_user.username)
         if player["fish_attempts"] >= 2:
@@ -229,22 +241,20 @@ async def process_fish(callback: types.CallbackQuery):
             )
             await callback.answer()
             return
-
         player["fish_attempts"] += 1
         earned_tl = random.randint(5, 12)
         player["balance"] += earned_tl
         save_db()
-        
         text = (
             f"🎣 **Вдала риболовля!** ({player['fish_attempts']}/2)\n\n"
             f"Зароблено: **+{earned_tl} TL** 💰\n"
             f"Твій новий баланс: **{player['balance']} TL**"
         )
-        
         await callback.message.answer(text, reply_markup=get_back_keyboard(), parse_mode="Markdown")
         await callback.answer()
     finally:
         PROCESSING_USERS.remove(user_id)
+
 
 @dp.callback_query(lambda c: c.data == "profile")
 async def process_profile(callback: types.CallbackQuery):
@@ -258,6 +268,7 @@ async def process_profile(callback: types.CallbackQuery):
     await callback.message.answer(text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
     await callback.answer()
 
+
 @dp.callback_query(lambda c: c.data == "buy_card")
 async def process_buy_card(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -265,7 +276,6 @@ async def process_buy_card(callback: types.CallbackQuery):
         await callback.answer("⏳ Обробка...", show_alert=False)
         return
     PROCESSING_USERS.add(user_id)
-
     try:
         player = get_player_data(user_id, callback.from_user.username)
         if player["balance"] < 10:
@@ -276,37 +286,32 @@ async def process_buy_card(callback: types.CallbackQuery):
             )
             await callback.answer()
             return
-
         player["balance"] -= 10
         cards_list = list(CARDS_DATABASE.values())
         weights = [c["weight"] for c in cards_list]
         chosen_card = random.choices(cards_list, weights=weights, k=1)[0]
-        
         is_new = chosen_card["id"] not in player["collection"]
         player["collection"].add(chosen_card["id"])
         save_db()
-
         caption = (
             f"🃏 **Картка:** {chosen_card['name']}\n"
             f"✨ **Рідкісність:** {chosen_card['rarity']}\n"
             f"💰 **Залишок балансу:** {player['balance']} TL"
         )
-
         card_photo = SEAL_PHOTOS.get(chosen_card["id"])
         if card_photo:
             await callback.message.answer_photo(photo=card_photo, caption=caption, reply_markup=get_back_keyboard(), parse_mode="Markdown")
         else:
             await callback.message.answer(caption, reply_markup=get_back_keyboard(), parse_mode="Markdown")
-
         await callback.answer()
     finally:
         PROCESSING_USERS.remove(user_id)
+
 
 @dp.callback_query(lambda c: c.data == "my_collection")
 async def process_collection(callback: types.CallbackQuery):
     player = get_player_data(callback.from_user.id, callback.from_user.username)
     collected_ids = sorted(list(player["collection"]))
-    
     if not collected_ids:
         text = "📦 **Твоя колекція порожня!**"
         builder = InlineKeyboardBuilder()
@@ -314,7 +319,6 @@ async def process_collection(callback: types.CallbackQuery):
         await callback.message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
         await callback.answer()
         return
-
     text = f"📦 **Твоя колекція ({len(collected_ids)}/100):**\n"
     builder = InlineKeyboardBuilder()
     for card_id in collected_ids:
@@ -325,27 +329,25 @@ async def process_collection(callback: types.CallbackQuery):
     await callback.message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
     await callback.answer()
 
+
 # --- ВЕБ-ІНТЕРФЕЙС ТА API ДЛЯ ГРИ ---
 async def handle_ping(request):
     return web.Response(text="Bot and Web Server are running!")
+
 
 async def handle_add_tl(request):
     try:
         data = await request.json()
         username = data.get("username", "").strip()
         amount = int(data.get("amount", 0))
-
         if not username or amount <= 0:
             return web.json_response({"status": "error", "message": "Invalid input"}, status=400)
-
         user_id = find_user_by_username(username)
         if not user_id:
             return web.json_response({"status": "error", "message": "User not found in bot. Press /start in bot first!"}, status=404)
-
         player = PLAYERS_DB[user_id]
         player["balance"] += amount
         save_db()
-
         return web.json_response({
             "status": "ok",
             "new_balance": player["balance"],
@@ -353,6 +355,7 @@ async def handle_add_tl(request):
         })
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=500)
+
 
 async def start_web_server():
     app = web.Application()
@@ -364,9 +367,11 @@ async def start_web_server():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
+
 async def main():
     await start_web_server()
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

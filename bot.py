@@ -1,5 +1,4 @@
 import os
-import json
 import random
 import asyncio
 from datetime import datetime
@@ -10,68 +9,87 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiohttp import web
+import asyncpg
 
 TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-DB_FILE = "players_data.json"
-PHOTOS_FILE = "seal_photos.json"
 PROCESSING_USERS = set()
 ADMINS_SET = set()
+
+PLAYERS_DB = {}
+SEAL_PHOTOS = {}
+DB_POOL = None
 
 
 class AdminStates(StatesGroup):
     waiting_for_password = State()
 
 
-def load_db():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                for user_id, p in data.items():
-                    p["collection"] = set(p["collection"])
-                return {int(k): v for k, v in data.items()}
-        except Exception:
-            return {}
-    return {}
+async def init_db():
+    global DB_POOL
+    DB_POOL = await asyncpg.create_pool(DATABASE_URL)
+
+    async with DB_POOL.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS players (
+                user_id BIGINT PRIMARY KEY,
+                balance INTEGER NOT NULL DEFAULT 0,
+                collection INTEGER[] NOT NULL DEFAULT '{}',
+                fish_attempts INTEGER NOT NULL DEFAULT 0,
+                last_fish_date TEXT NOT NULL DEFAULT '',
+                username TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS photos (
+                id INTEGER PRIMARY KEY,
+                file_id TEXT NOT NULL
+            )
+        """)
+
+        rows = await conn.fetch("SELECT * FROM players")
+        for row in rows:
+            PLAYERS_DB[row["user_id"]] = {
+                "balance": row["balance"],
+                "collection": set(row["collection"]),
+                "fish_attempts": row["fish_attempts"],
+                "last_fish_date": row["last_fish_date"],
+                "username": row["username"]
+            }
+
+        photo_rows = await conn.fetch("SELECT * FROM photos")
+        for row in photo_rows:
+            SEAL_PHOTOS[row["id"]] = row["file_id"]
 
 
-def save_db():
-    data_to_save = {}
-    for user_id, p in PLAYERS_DB.items():
-        p_copy = p.copy()
-        p_copy["collection"] = list(p["collection"])
-        data_to_save[str(user_id)] = p_copy
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(data_to_save, f, ensure_ascii=False, indent=2)
+async def save_player(user_id: int):
+    p = PLAYERS_DB[user_id]
+    async with DB_POOL.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO players (user_id, balance, collection, fish_attempts, last_fish_date, username)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (user_id) DO UPDATE SET
+                balance = $2, collection = $3, fish_attempts = $4, last_fish_date = $5, username = $6
+        """, user_id, p["balance"], list(p["collection"]), p["fish_attempts"], p["last_fish_date"], p["username"])
 
 
-def load_photos():
-    if os.path.exists(PHOTOS_FILE):
-        try:
-            with open(PHOTOS_FILE, "r", encoding="utf-8") as f:
-                return {int(k): v for k, v in json.load(f).items()}
-        except Exception:
-            return {}
-    return {}
+async def save_photo(photo_id: int, file_id: str):
+    async with DB_POOL.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO photos (id, file_id) VALUES ($1, $2)
+            ON CONFLICT (id) DO UPDATE SET file_id = $2
+        """, photo_id, file_id)
 
 
-def save_photos():
-    with open(PHOTOS_FILE, "w", encoding="utf-8") as f:
-        json.dump(SEAL_PHOTOS, f, ensure_ascii=False, indent=2)
-
-
-PLAYERS_DB = load_db()
-SEAL_PHOTOS = load_photos()
-
-
-def get_player_data(user_id: int, username: str = None):
+async def get_player_data(user_id: int, username: str = None):
     today_str = datetime.now().strftime("%Y-%m-%d")
-    if user_id not in PLAYERS_DB:
+    is_new = user_id not in PLAYERS_DB
+    if is_new:
         PLAYERS_DB[user_id] = {
             "balance": 0,
             "collection": set(),
@@ -79,14 +97,17 @@ def get_player_data(user_id: int, username: str = None):
             "last_fish_date": today_str,
             "username": username.lower() if username else ""
         }
-        save_db()
     player = PLAYERS_DB[user_id]
-    if username:
+    changed = is_new
+    if username and player["username"] != username.lower():
         player["username"] = username.lower()
+        changed = True
     if player["last_fish_date"] != today_str:
         player["fish_attempts"] = 0
         player["last_fish_date"] = today_str
-        save_db()
+        changed = True
+    if changed:
+        await save_player(user_id)
     return player
 
 
@@ -162,7 +183,7 @@ def get_back_keyboard():
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     username = message.from_user.username or ""
-    get_player_data(message.from_user.id, username)
+    await get_player_data(message.from_user.id, username)
     await message.answer(
         "🦭 **Вітаю у Seal Game!**\n\n"
         "1. Лови рибу (максимум **2 рази на день**).\n"
@@ -210,7 +231,7 @@ async def handle_photo_upload(message: types.Message):
         return
     file_id = message.photo[-1].file_id
     SEAL_PHOTOS[next_id] = file_id
-    save_photos()
+    await save_photo(next_id, file_id)
     await message.answer(
         f"📸 **Завантажено photo #{next_id}!**\n"
         f"Залишилося: **{100 - next_id}** шт.",
@@ -232,7 +253,7 @@ async def process_fish(callback: types.CallbackQuery):
         return
     PROCESSING_USERS.add(user_id)
     try:
-        player = get_player_data(user_id, callback.from_user.username)
+        player = await get_player_data(user_id, callback.from_user.username)
         if player["fish_attempts"] >= 2:
             await callback.message.answer(
                 "⏳ **Ліміт риболовлі вичерпано!** (2/2 на день)",
@@ -244,7 +265,7 @@ async def process_fish(callback: types.CallbackQuery):
         player["fish_attempts"] += 1
         earned_tl = random.randint(5, 12)
         player["balance"] += earned_tl
-        save_db()
+        await save_player(user_id)
         text = (
             f"🎣 **Вдала риболовля!** ({player['fish_attempts']}/2)\n\n"
             f"Зароблено: **+{earned_tl} TL** 💰\n"
@@ -258,7 +279,7 @@ async def process_fish(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "profile")
 async def process_profile(callback: types.CallbackQuery):
-    player = get_player_data(callback.from_user.id, callback.from_user.username)
+    player = await get_player_data(callback.from_user.id, callback.from_user.username)
     text = (
         f"👤 **Твій профіль:**\n\n"
         f"💰 Баланс: **{player['balance']} TL**\n"
@@ -277,7 +298,7 @@ async def process_buy_card(callback: types.CallbackQuery):
         return
     PROCESSING_USERS.add(user_id)
     try:
-        player = get_player_data(user_id, callback.from_user.username)
+        player = await get_player_data(user_id, callback.from_user.username)
         if player["balance"] < 10:
             await callback.message.answer(
                 f"❌ **Нестача коштів!** (Картка коштує 10 TL, у тебе {player['balance']} TL)",
@@ -290,9 +311,8 @@ async def process_buy_card(callback: types.CallbackQuery):
         cards_list = list(CARDS_DATABASE.values())
         weights = [c["weight"] for c in cards_list]
         chosen_card = random.choices(cards_list, weights=weights, k=1)[0]
-        is_new = chosen_card["id"] not in player["collection"]
         player["collection"].add(chosen_card["id"])
-        save_db()
+        await save_player(user_id)
         caption = (
             f"🃏 **Картка:** {chosen_card['name']}\n"
             f"✨ **Рідкісність:** {chosen_card['rarity']}\n"
@@ -310,7 +330,7 @@ async def process_buy_card(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "my_collection")
 async def process_collection(callback: types.CallbackQuery):
-    player = get_player_data(callback.from_user.id, callback.from_user.username)
+    player = await get_player_data(callback.from_user.id, callback.from_user.username)
     collected_ids = sorted(list(player["collection"]))
     if not collected_ids:
         text = "📦 **Твоя колекція порожня!**"
@@ -347,7 +367,7 @@ async def handle_add_tl(request):
             return web.json_response({"status": "error", "message": "User not found in bot. Press /start in bot first!"}, status=404)
         player = PLAYERS_DB[user_id]
         player["balance"] += amount
-        save_db()
+        await save_player(user_id)
         return web.json_response({
             "status": "ok",
             "new_balance": player["balance"],
@@ -369,6 +389,7 @@ async def start_web_server():
 
 
 async def main():
+    await init_db()
     await start_web_server()
     await dp.start_polling(bot)
 
